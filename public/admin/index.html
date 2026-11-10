@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101624"><link rel="manifest" href="/manifest.webmanifest">
+<title>AIVEXUS Beta Access</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:#101624;color:#f6f8ff;margin:0;padding:18px}main{max-width:680px;margin:auto}h1{font-size:1.45rem;margin:4px 0}h2{font-size:1.05rem;margin:0 0 12px}p,small{color:#b8c3d7}section{background:#1b2539;border:1px solid #324262;border-radius:18px;padding:16px;margin-top:15px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button,input,select{font:inherit;border-radius:10px;padding:10px 12px;border:1px solid #516381;background:#152037;color:#f6f8ff}button{background:#2769da;border:0;cursor:pointer}button.secondary{background:#364761}button.danger{background:#91414b}input{width:100%}label{display:block;font-size:.9rem;margin:8px 0 3px;color:#cbd6ed}#qr{display:block;width:176px;height:176px;background:#fff;padding:8px;margin:12px auto;border-radius:12px}.card{border-top:1px solid #3b4d6b;padding:13px 0}.card:first-child{border:0}.badge{display:inline-block;border-radius:10px;background:#425677;padding:3px 9px;font-size:.78rem}.pill{background:#5a431e}.label{font-weight:700}.hint{font-size:.82rem}.hidden{display:none!important}a{color:#95c8ff}#notice{min-height:1.3em}
+</style></head>
+<body><main>
+<header><h1>🔐 AIVEXUS Beta Access</h1><small>Gestione privata da Android · WEmulDroid</small></header>
+<section><h2>Condivisione beta</h2><p id="version">Verifica release in corso…</p>
+<img id="qr" src="/qr/wemuldroid.svg" alt="Codice QR per scaricare WEmulDroid">
+<label for="link">Link permanente per il tester</label><input id="link" readonly value="">
+<div class="row" style="margin-top:9px"><button id="copy">Copia link</button><button id="share" class="secondary">Condividi</button></div>
+<label for="mail">Invia via email (apre l'app email)</label><div class="row"><input id="mail" type="email" placeholder="tester@esempio.com" style="flex:1;min-width:160px"><button id="email">Prepara email</button></div>
+<p class="hint">Il QR apre la pagina download Windows. Solo la beta con integrazione Beta Access richiederà l'attivazione.</p>
+</section>
+<section><h2>Accesso amministratore</h2><label for="token">Chiave amministratore</label><input id="token" type="password" autocomplete="off" placeholder="Chiave configurata sul server">
+<div class="row" style="margin-top:10px"><button id="login">Apri richieste</button><button id="refresh" class="secondary">Aggiorna</button><button id="logout" class="secondary">Esci</button></div>
+<p class="hint">La chiave resta in memoria soltanto in questa sessione: non è salvata sul telefono.</p><p id="notice" role="status"></p>
+</section>
+<section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2><div id="requests"></div></section>
+<p class="hint">Installazione su Android: apri questa pagina in Chrome → menu ⋮ → Aggiungi a schermata Home / Installa app. Il controllo aggiornamenti funziona quando l'app è aperta; le notifiche push non sono ancora abilitate.</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);let token="";
+const notify=s=>$("notice").textContent=s;
+async function api(path,options={}) {
+ const res=await fetch(path,{...options,headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json",...(options.headers||{})},cache:"no-store"});
+ const data=await res.json().catch(()=>({}));
+ if(!res.ok) throw Error(data.error||"Errore di connessione");
+ return data;
+}
+async function catalog(){
+ try {const data=await api("/api/catalog");$("version").textContent=data.release?"Ultima beta verificata: "+data.release.tag:"Nessun installer verificato";
+ $("link").value=data.share_url||location.origin+"/d/wemuldroid";
+ } catch(_) {$("version").textContent="Impossibile verificare ora l'installer";$("link").value=location.origin+"/d/wemuldroid";}
+}
+$("copy").onclick=async()=>{try{await navigator.clipboard.writeText($("link").value);notify("Link copiato");}catch(_){$("link").select();notify("Seleziona e copia il link");}};
+$("share").onclick=async()=>{if(navigator.share)try{await navigator.share({title:"WEmulDroid Beta",url:$("link").value});}catch(_){}else $("copy").click();};
+$("email").onclick=()=>{const addr=$("mail").value.trim();if(!addr || !$("mail").checkValidity()){notify("Inserisci un indirizzo email valido");return;}
+ const subject=encodeURIComponent("Invito al test WEmulDroid");
+ const body=encodeURIComponent("Puoi scaricare la versione beta di WEmulDroid qui:\n"+$("link").value+"\n\nDopo l'installazione richiedi l'attivazione dall'app.");
+ location.href="mailto:"+addr+"?subject="+subject+"&body="+body;
+};
+async function decide(id,action,days) {
+ try {await api("/api/admin/requests/"+encodeURIComponent(id)+"/decision",{method:"POST",body:JSON.stringify({action,duration_days:days})});
+ notify("Decisione registrata");await refresh();
+ } catch(e){notify(e.message);}
+}
+async function refresh(){
+ if(!token) {notify("Inserisci la chiave amministratore");return;}
+ try {const data=await api("/api/admin/requests");$("pendingSection").classList.remove("hidden");$("requests").replaceChildren();
+ if(!(data.requests||[]).length){$("requests").textContent="Nessuna installazione registrata.";}
+ for(const r of data.requests||[]){
+   const div=document.createElement("div");div.className="card";
+   const name=document.createElement("div");name.className="label";name.textContent=r.label+" · "+r.app_id;
+   const info=document.createElement("p");info.className="hint";info.textContent=r.platform+" | "+r.version+" | "+r.id.slice(0,8)+" | richiesta "+new Date(r.requested_at).toLocaleString("it-IT");
+   const state=document.createElement("span");state.className="badge"+(r.state==="pending"?" pill":"");state.textContent=r.state+(r.approved_until?" · fino a "+new Date(r.approved_until).toLocaleDateString("it-IT"):"");
+   const row=document.createElement("div");row.className="row";row.style.marginTop="10px";
+   const days=document.createElement("select");for(const n of [1,7,30,90,365]){const opt=document.createElement("option");opt.value=n;opt.textContent=n+" giorni";if(n===30)opt.selected=true;days.append(opt);}
+   const yes=document.createElement("button");yes.textContent="Autorizza";yes.onclick=()=>decide(r.id,"approve",Number(days.value));
+   const no=document.createElement("button");no.textContent="Rifiuta";no.className="secondary";no.onclick=()=>decide(r.id,"deny");
+   const revoke=document.createElement("button");revoke.textContent="Revoca";revoke.className="danger";revoke.onclick=()=>decide(r.id,"revoke");
+   row.append(days,yes,no,revoke);div.append(name,info,state,row);$("requests").append(div);
+ }
+ notify(data.requests.length+" installazioni caricate");
+ }catch(e){notify(e.message);$("pendingSection").classList.add("hidden");}
+}
+$("login").onclick=()=>{token=$("token").value.trim();$("token").value="";refresh();};
+$("refresh").onclick=refresh;$("logout").onclick=()=>{token="";$("pendingSection").classList.add("hidden");$("requests").replaceChildren();notify("Sessione chiusa");};
+setInterval(()=>{if(token && !document.hidden)refresh();},30000);
+if("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
+catalog();
+</script></body></html>

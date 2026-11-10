@@ -1,0 +1,22 @@
+name = "aivexus-beta-access"
+main = "src/worker.mjs"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Set PUBLIC_BASE_URL after the first deploy to the real HTTPS endpoint.
+# Add ADMIN_TOKEN and DIAGNOSTICS_GITHUB_TOKEN with "wrangler secret put".
+[vars]
+APP_REPO = "pilialvu75-hue/WEmulDroid"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "beta-access"
+database_id = "REPLACE_WITH_REAL_D1_DATABASE_ID"
+migrations_dir = "./migrations"
+
+[triggers]
+crons = ["*/5 * * * *"]
