@@ -12,4 +12,6 @@ Central service for distributing private-test invitations, QR codes, and time-li
 
 The beta service is **not yet deployed**. The public repository does not imply that an authorization server, Android APK, push notifications, signed Windows installer or automatic email delivery already exists.
 
-The previous prototype lives temporarily in [WEmulDroid PR #8](https://github.com/pilialvu75-hue/WEmulDroid/pull/8), pending extraction into this repository. **Do not publish live access credentials or secrets here.**
+Implementation is now in [Beta-access PR #1](https://github.com/pilialvu75-hue/Beta-access/pull/1) on the `feature/wemuldroid-pilot` branch. The Windows-only adapter remains in [WEmulDroid PR #8](https://github.com/pilialvu75-hue/WEmulDroid/pull/8), and the producer schema in [Diagnostics PR #3](https://github.com/pilialvu75-hue/Ai-orchestrator-diagnostics/pull/3).
+
+**Do not publish live access credentials or secrets here.**
