@@ -43,6 +43,11 @@ async function deviceRecord(req,env,id) {
   return constantTimeEqual(dig,row.secret_sha256) ? row : null;
 }
 async function enroll(req,env) {
+  // The public QR/installer is disabled until a verified, gated beta is ready.
+  // Allow only an administrator to create synthetic enrollment checks meanwhile.
+  if (env.PUBLIC_TESTERS_ENABLED !== "true" && !(await adminAllowed(req,env))) {
+    return fail("Tester enrollment is not enabled",403);
+  }
   const body = await readJson(req);
   if (!validEnrollment(body)) return fail("Invalid enrollment");
   const id = body.installation_id.toLowerCase();

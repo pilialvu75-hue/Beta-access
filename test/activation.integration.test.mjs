@@ -67,7 +67,7 @@ const status=env=>worker.fetch(request("/api/v1/status?installation_id="+id,"GET
 const send=async(env,path,body,headers={})=>worker.fetch(request(path,"POST",body,headers),env,{});
 
 test("full approval lifecycle, expiry, revocation and opt-in telemetry",async()=>{
- const DB=db(), env={DB,ADMIN_TOKEN:adminKey,PUBLIC_TESTERS_ENABLED:"false"};
+ const DB=db(), env={DB,ADMIN_TOKEN:adminKey,PUBLIC_TESTERS_ENABLED:"true"};
  let r=await send(env,"/api/v1/enroll",enrollBody());
  assert.equal(r.status,200);
  assert.equal((await r.json()).state,"pending");
@@ -99,7 +99,7 @@ test("full approval lifecycle, expiry, revocation and opt-in telemetry",async()=
 });
 
 test("admin secret, duration and device-secret boundaries",async()=>{
- const DB=db(),env={DB,ADMIN_TOKEN:adminKey,PUBLIC_TESTERS_ENABLED:"false"};
+ const DB=db(),env={DB,ADMIN_TOKEN:adminKey,PUBLIC_TESTERS_ENABLED:"true"};
  let r=await send(env,"/api/v1/enroll",enrollBody(false));assert.equal(r.status,200);
  r=await send(env,"/api/admin/requests/"+id+"/decision",{action:"approve",duration_days:0},{"Authorization":"Bearer "+adminKey});
  assert.equal(r.status,400);
