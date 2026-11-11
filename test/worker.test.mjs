@@ -28,3 +28,19 @@ test("Android PWA root is served, not a redirect loop",async()=>{
  assert.equal(page.status,200);
  assert.equal(await page.text(),"PWA OK");
 });
+
+test("enrollment is closed when public beta distribution is disabled",async()=>{
+ const q=new Request("https://beta.example.test/api/v1/enroll",{method:"POST",
+  headers:{"content-type":"application/json"},body:JSON.stringify({app_id:"wemuldroid"})});
+ const blocked=await worker.fetch(q,env,{});
+ assert.equal(blocked.status,403);
+ const badAdmin=new Request("https://beta.example.test/api/v1/enroll",{method:"POST",
+  headers:{"authorization":"Bearer WRONG","content-type":"application/json"},body:"{}"});
+ assert.equal((await worker.fetch(badAdmin,{...env,ADMIN_TOKEN:"a".repeat(64)},{})).status,403);
+ const goodAdmin=new Request("https://beta.example.test/api/v1/enroll",{method:"POST",
+  headers:{"authorization":"Bearer "+"a".repeat(64),"content-type":"application/json"},body:"{}"});
+ assert.equal((await worker.fetch(goodAdmin,{...env,ADMIN_TOKEN:"a".repeat(64)},{})).status,400);
+ const publicRequest=new Request("https://beta.example.test/api/v1/enroll",{method:"POST",
+  headers:{"content-type":"application/json"},body:"{}"});
+ assert.equal((await worker.fetch(publicRequest,{...env,PUBLIC_TESTERS_ENABLED:"true"},{})).status,400);
+});
