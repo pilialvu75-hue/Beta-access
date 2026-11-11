@@ -1,10 +1,5 @@
 name: Deploy Beta Access to Cloudflare (manual)
 on:
-  # Safe one-time bootstrap on main; removed once the smoke test passes.
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       run_live_smoke:
