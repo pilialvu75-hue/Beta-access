@@ -34,6 +34,8 @@ const cookieValue=req=>{
  return match?.[1]??null;
 };
 export async function passkeySessionAllowed(req,env) {
+ // A cookie-backed admin session must not authorize an off-origin write.
+ if(req.method!=="GET" && !requireOrigin(req))return false;
  if(!env.DB)return false;
  const credential=cookieValue(req);
  if(!credential)return false;
