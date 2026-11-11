@@ -31,7 +31,7 @@ function db() {
        const [id,app_id,secret_sha256,label,platform,version,requested_at,telemetry_consent,last_seen_at]=args;
        rows.set(id,{id,app_id,secret_sha256,label,platform,version,requested_at,telemetry_consent,last_seen_at,state:"pending",approved_until:null,decided_at:null});
      }else if(query.startsWith("UPDATE installations SET state='pending'")) {
-       const r=rows.get(args[7]);
+       const r=rows.get(args[5]);
        Object.assign(r,{state:"pending",approved_until:null,decided_at:null,requested_at:args[0],label:args[1],version:args[2],telemetry_consent:args[3],last_seen_at:args[4]});
      }else if(query.startsWith("UPDATE installations SET version=")){
        const r=rows.get(args[2]);Object.assign(r,{version:args[0],last_seen_at:args[1]});
