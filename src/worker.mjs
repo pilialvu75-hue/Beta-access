@@ -14,12 +14,18 @@ async function readJson(request) {
   if (body.length > 4096) throw new Error("Request too large");
   return JSON.parse(body);
 }
-async function githubRelease() {
+// An administrator must approve a newly built gated beta before the public QR works.
+async function githubRelease(env) {
+  if (env.PUBLIC_TESTERS_ENABLED !== "true") return null;
+  const tag = (env.APPROVED_BETA_TAG || "").trim();
+  if (!/^v\d+\.\d+\.\d+-beta\.\d+$/.test(tag)) return null;
   const res = await fetch(GH_RELEASES,{headers:{"Accept":"application/vnd.github+json","User-Agent":"Aivexus-Beta-Access/1.0"},cf:{cacheTtl:120,cacheEverything:true}});
   if (!res.ok) throw new Error("GitHub catalog unavailable");
   const body = await res.text();
   if (body.length > 300000) throw new Error("GitHub catalog too large");
-  return latestInstaller(JSON.parse(body));
+  const releases = JSON.parse(body);
+  if (!Array.isArray(releases)) throw new Error("Unexpected release catalog");
+  return latestInstaller(releases.filter(r => r?.tag_name === tag));
 }
 async function adminAllowed(req,env) {
   const candidate = req.headers.get("authorization") || "";
@@ -107,8 +113,8 @@ function publicOrigin(req,env) {
   return url.origin;
 }
 async function publicDownload(req,env) {
-  const release = await githubRelease();
-  if (!release) return fail("No verified WEmulDroid beta installer available",503);
+  const release = await githubRelease(env);
+  if (!release) return fail("No approved gated WEmulDroid beta installer available",503);
   const safeTag=release.tag.replace(/[^a-zA-Z0-9.+-]/g,"");
   const html = '<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WEmulDroid beta</title>' +
     '<style>body{font-family:system-ui;margin:12vh auto;max-width:620px;padding:20px;line-height:1.5;background:#101624;color:#f5f7ff}a{color:#91c8ff}.btn{display:inline-block;background:#3277e7;color:#fff;padding:15px 20px;border-radius:12px;text-decoration:none}small{color:#c1c8dc}</style>' +
@@ -117,9 +123,9 @@ async function publicDownload(req,env) {
     '<small>Dopo l’installazione delle build Beta Access, avvia il programma e premi «Richiedi autorizzazione».</small></html>';
   return new Response(html,{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-store","content-security-policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'","x-content-type-options":"nosniff"}});
 }
-async function download() {
-  const release = await githubRelease();
-  if (!release) return fail("No verified installer found",503);
+async function download(env) {
+  const release = await githubRelease(env);
+  if (!release) return fail("No approved gated installer available",503);
   return Response.redirect(release.download,302);
 }
 async function githubAPI(env,path,opts={}) {
@@ -210,14 +216,16 @@ export default {
     const url = new URL(req.url), path = url.pathname.replace(/\/+$/,"") || "/";
     if (path==="/") return Response.redirect(publicOrigin(req,env)+"/admin/",302);
     if (req.method==="GET" && path==="/d/wemuldroid") return publicDownload(req,env);
-    if (req.method==="GET" && path==="/download/wemuldroid") return download();
+    if (req.method==="GET" && path==="/download/wemuldroid") return download(env);
     if (req.method==="GET" && path==="/qr/wemuldroid.svg") {
       const svg=await QRCode.toString(publicOrigin(req,env)+"/d/wemuldroid",{type:"svg",errorCorrectionLevel:"M",margin:3});
       return new Response(svg,{headers:{"content-type":"image/svg+xml","cache-control":"public,max-age=300","x-content-type-options":"nosniff"}});
     }
     if (path==="/api/catalog" && req.method==="GET") {
-      const release=await githubRelease();
-      return response({app_id:APP,release:release?{tag:release.tag,download:release.download}:null,share_url:publicOrigin(req,env)+"/d/wemuldroid"});
+      const release=await githubRelease(env);
+      return response({app_id:APP,release:release?{tag:release.tag,download:release.download}:null,
+        available:!!release,share_url:release?publicOrigin(req,env)+"/d/wemuldroid":null,
+        message:release?null:"Inviti disattivati: manca una beta con attivazione autorizzata."});
     }
     if (path==="/api/v1/enroll" && req.method==="POST") return enroll(req,env);
     if (path==="/api/v1/status" && req.method==="GET") return status(req,env,url);
