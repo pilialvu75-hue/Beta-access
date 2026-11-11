@@ -1,5 +1,11 @@
 name: Deploy Beta Access to Cloudflare (manual)
 on:
+  # One-time first deploy bootstrap, to be removed after success.
+  # Push inputs are empty: this automatically disables all tester downloads.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       enable_tester_download:
