@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {handlePasskey,passkeySessionAllowed} from "./passkeys.mjs";
 import {APP, REPO, DIAGNOSTICS_REPO, UUID, HEX_SECRET, latestInstaller, validEnrollment, expiry, effectiveState, sanitizeTelemetry, sha256hex, constantTimeEqual} from "./core.mjs";
 
 const GH_RELEASES = "https://api.github.com/repos/" + REPO + "/releases?per_page=30";
@@ -29,9 +30,11 @@ async function githubRelease(env) {
 }
 async function adminAllowed(req,env) {
   const candidate = req.headers.get("authorization") || "";
-  if (!env.ADMIN_TOKEN || env.ADMIN_TOKEN.length < 48 || !candidate.startsWith("Bearer ")) return false;
-  const a = await sha256hex(candidate.slice(7)), b = await sha256hex(env.ADMIN_TOKEN);
-  return constantTimeEqual(a,b);
+  if (env.ADMIN_TOKEN?.length >= 48 && candidate.startsWith("Bearer ")) {
+    const a=await sha256hex(candidate.slice(7)), b=await sha256hex(env.ADMIN_TOKEN);
+    if(constantTimeEqual(a,b))return true; // Existing recovery key remains unchanged.
+  }
+  return passkeySessionAllowed(req,env);
 }
 async function deviceRecord(req,env,id) {
   if (!UUID.test(id ?? "")) return null;
@@ -235,6 +238,8 @@ export default {
     if (path==="/api/v1/enroll" && req.method==="POST") return enroll(req,env);
     if (path==="/api/v1/status" && req.method==="GET") return status(req,env,url);
     if (path==="/api/v1/telemetry" && req.method==="POST") return telemetry(req,env);
+    if (path.startsWith("/api/admin/passkey/"))
+      return handlePasskey(req,env,path);
     if (path.startsWith("/api/admin/")) {
       if (!await adminAllowed(req,env)) return fail("Administrator credentials required",401);
       if (path==="/api/admin/requests" && req.method==="GET") return adminRequests(env);

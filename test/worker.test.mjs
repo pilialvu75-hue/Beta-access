@@ -44,3 +44,14 @@ test("enrollment is closed when public beta distribution is disabled",async()=>{
   headers:{"content-type":"application/json"},body:"{}"});
  assert.equal((await worker.fetch(publicRequest,{...env,PUBLIC_TESTERS_ENABLED:"true"},{})).status,400);
 });
+
+test("new passkey enrollment stays closed until the account owner opens it",async()=>{
+ const req=new Request("https://aivexus-beta-access.aivexus-lab.workers.dev/api/admin/passkey/register/options",{method:"POST",headers:{"Origin":"https://aivexus-beta-access.aivexus-lab.workers.dev"}});
+ const response=await worker.fetch(req,{PASSKEY_ENROLLMENT_OPEN:"false"}, {});
+ assert.equal(response.status,403);
+});
+test("untrusted origin cannot open passkey registration",async()=>{
+ const req=new Request("https://aivexus-beta-access.aivexus-lab.workers.dev/api/admin/passkey/register/options",{method:"POST",headers:{"Origin":"https://evil.test"}});
+ const response=await worker.fetch(req,{PASSKEY_ENROLLMENT_OPEN:"true"},{});
+ assert.equal(response.status,403);
+});
