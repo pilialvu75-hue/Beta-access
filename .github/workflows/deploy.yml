@@ -26,8 +26,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.BETA_CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.BETA_CF_ACCOUNT_ID }}
       BETA_ADMIN_TOKEN: ${{ secrets.BETA_ADMIN_TOKEN }}
       DIAGNOSTICS_GITHUB_TOKEN: ${{ secrets.DIAGNOSTICS_GITHUB_TOKEN }}
       ENABLE_TESTER_DOWNLOAD: ${{ inputs.enable_tester_download }}
@@ -47,6 +47,9 @@ jobs:
               echo "::error::Missing Actions secret $key"; exit 1
             fi
           done
+          if [[ ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
+            echo "::error::Invalid dedicated Cloudflare Account ID"; exit 1
+          fi
           if [[ ${#BETA_ADMIN_TOKEN} -lt 48 ]]; then
             echo "::error::BETA_ADMIN_TOKEN must be 48+ random characters"; exit 1
           fi
