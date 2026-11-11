@@ -1,10 +1,5 @@
 name: Deploy Beta Access to Cloudflare (manual)
 on:
-  # One-time secure passkey rollout: downloads and enrollments remain OFF by default.
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       run_live_smoke:
