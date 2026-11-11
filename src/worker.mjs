@@ -229,7 +229,8 @@ export default {
       if (match && req.method==="POST") return adminDecision(req,env,match[1]);
       return notFound();
     }
-    if (path==="/admin") return Response.redirect(publicOrigin(req,env)+"/admin/",302);
+    // Do not normalize /admin/ to /admin, otherwise a redirect loop occurs.
+    if (url.pathname==="/admin") return Response.redirect(publicOrigin(req,env)+"/admin/",302);
     if (env.ASSETS && req.method==="GET") return env.ASSETS.fetch(req);
     return notFound();
    }catch(e) {

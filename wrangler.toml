@@ -7,6 +7,9 @@ compatibility_flags = ["nodejs_compat"]
 # Add ADMIN_TOKEN and DIAGNOSTICS_GITHUB_TOKEN with "wrangler secret put".
 [vars]
 APP_REPO = "pilialvu75-hue/WEmulDroid"
+# No public links to historical ungated beta installers.
+PUBLIC_TESTERS_ENABLED = "false"
+APPROVED_BETA_TAG = ""
 
 [assets]
 directory = "./public"

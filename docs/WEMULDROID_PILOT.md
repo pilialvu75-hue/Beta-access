@@ -1,13 +1,13 @@
 # WEmulDroid pilot — AIVEXUS Beta Access
 
-**Status: source prototype; independent backend awaiting deployment, installer integration and on-device tests. NOT DEPLOYED. No live QR, authorization server, push notification or gated WEmulDroid installer has been verified yet.**
+**Status: source prototype, NOT DEPLOYED.** The Cloudflare workflow is ready but requires owner-saved secrets and one manual run. No real QR delivery, PWA on-device, push, or gated WEmulDroid installer has been verified yet. See [Cloudflare release guide](CLOUDFLARE_RELEASE.md).
 
 This is independent of Ai-orchestrator-riserva. The **administrator uses an installable Android PWA**; the tested WEmulDroid application runs on **Windows**. The pilot deliberately preserves existing stable/beta installations, Android SDKs, AVDs and reports.
 
 ## End-to-end flow
 
 1. Administrator opens the Android PWA at the eventual `https://<your-Cloudflare-Worker>/admin/`, enters a private admin secret (memory-only session).
-2. App fetches latest verified *official* WEmulDroid GitHub beta installer; permanent URL `/d/wemuldroid` shows actual version, Windows warning and a button redirecting to the official EXE. QR SVG is `/qr/wemuldroid.svg`; both have a stable URL.
+2. App fetches the latest **owner-approved gated** WEmulDroid beta; publication is disabled by default, and permanent URL `/d/wemuldroid` shows actual version, Windows warning and a button redirecting to the official EXE. QR SVG is `/qr/wemuldroid.svg`; both have a stable URL.
 3. Administrator taps Copy, Share, or Prepare email (opens the phone email composer; **does not send mail silently**).
 4. On a **specifically built gated beta installer**, the tester sees the "Richiedi autorizzazione" gate on first launch. Enrolling requires a pseudonymous label and offers explicit consent for telemetry.
 5. A random installation UUID and 256-bit device secret are generated; the secret is stored locally using **Windows DPAPI CurrentUser**. Only its SHA-256 is stored in Cloudflare D1. No GitHub token is bundled with Windows.
@@ -16,6 +16,8 @@ This is independent of Ai-orchestrator-riserva. The **administrator uses an inst
 8. With separate telemetry consent, filtered events go to local queue files. A detached uploader delivers to the Worker, which writes into its D1 outbox. A 5-minute scheduled task forwards JSONL archives to the dedicated Diagnostics GitHub Release namespace.
 
 ## Deployment checklist (owner only)
+
+**Recommended:** use the manual GitHub Actions deployment from [Cloudflare release guide](CLOUDFLARE_RELEASE.md) rather than modifying config files on a local machine. The instructions below describe a local alternative for experienced developers and must not be used to enable old ungated releases.
 
 Requires a Cloudflare account with Workers/D1, Node 22, and an optional fine-grained GitHub token for **only** `pilialvu75-hue/Ai-orchestrator-diagnostics` (Contents read/write, release creation/upload). **Never share tokens in chat, README, QR, installer, client logs or Git commits.**
 
