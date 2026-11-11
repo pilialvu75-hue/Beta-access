@@ -14,15 +14,23 @@
 <label for="mail">Invia via email (apre l'app email)</label><div class="row"><input id="mail" type="email" placeholder="tester@esempio.com" style="flex:1;min-width:160px"><button id="email" disabled>Prepara email</button></div>
 <p class="hint">Il QR apre la pagina download Windows. Solo la beta con integrazione Beta Access richiederà l'attivazione.</p>
 </section>
-<section><h2>Accesso amministratore</h2><label for="token">Chiave amministratore</label><input id="token" type="password" autocomplete="off" placeholder="Chiave configurata sul server">
-<div class="row" style="margin-top:10px"><button id="login">Apri richieste</button><button id="refresh" class="secondary">Aggiorna</button><button id="logout" class="secondary">Esci</button></div>
-<p class="hint">La chiave resta in memoria soltanto in questa sessione: non è salvata sul telefono.</p><p id="notice" role="status"></p>
+<section><h2>Accesso amministratore</h2>
+<p class="hint">Accedi con l'impronta digitale o il PIN di sblocco Android. Non è necessario digitare la vecchia chiave da 64 caratteri.</p>
+<div class="row">
+  <button id="passkeyLogin" type="button">Accedi con impronta / PIN</button>
+  <button id="passkeyRegister" class="secondary" type="button">Registra questo telefono</button>
+</div>
+<p class="hint">Al primo utilizzo, la passkey deve essere approvata dall'amministratore Cloudflare. La registrazione non concede accesso automaticamente.</p>
+<details><summary>Accesso di recupero con chiave lunga</summary>
+<label for="token">Chiave amministratore</label><input id="token" type="password" autocomplete="off" placeholder="Chiave configurata sul server">
+<div class="row" style="margin-top:10px"><button id="login">Accedi con chiave lunga</button><button id="refresh" class="secondary">Aggiorna</button><button id="logout" class="secondary">Esci</button></div>
+<p class="hint">La chiave lunga, se utilizzata, resta in memoria soltanto durante questa sessione.</p></details><p id="notice" role="status"></p>
 </section>
 <section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2><div id="requests"></div></section>
 <p class="hint">Installazione su Android: apri questa pagina in Chrome → menu ⋮ → Aggiungi a schermata Home / Installa app. Il controllo aggiornamenti funziona quando l'app è aperta; le notifiche push non sono ancora abilitate.</p>
 </main>
 <script>
-const $=id=>document.getElementById(id);let token="";
+const $=id=>document.getElementById(id);let token="",passkeyLoggedIn=false;
 const notify=s=>$("notice").textContent=s;
 async function api(path,options={}) {
  const res=await fetch(path,{...options,headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json",...(options.headers||{})},cache:"no-store"});
@@ -58,7 +66,7 @@ async function decide(id,action,days) {
  } catch(e){notify(e.message);}
 }
 async function refresh(){
- if(!token) {notify("Inserisci la chiave amministratore");return;}
+ if(!token && !passkeyLoggedIn) {notify("Accedi con impronta / PIN oppure con la chiave di recupero");return;}
  try {const data=await api("/api/admin/requests");$("pendingSection").classList.remove("hidden");$("requests").replaceChildren();
  if(!(data.requests||[]).length){$("requests").textContent="Nessuna installazione registrata.";}
  for(const r of data.requests||[]){
@@ -76,9 +84,64 @@ async function refresh(){
  notify(data.requests.length+" installazioni caricate");
  }catch(e){notify(e.message);$("pendingSection").classList.add("hidden");}
 }
+// Native WebAuthn. Private keys, fingerprints and the device PIN never leave Android.
+const decode64=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+const encode64=s=>btoa(String.fromCharCode(...new Uint8Array(s))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const regOpts=o=>({...o,challenge:decode64(o.challenge),user:{...o.user,id:decode64(o.user.id)},
+ excludeCredentials:(o.excludeCredentials||[]).map(x=>({...x,id:decode64(x.id)}))});
+const authOpts=o=>({...o,challenge:decode64(o.challenge),
+ allowCredentials:(o.allowCredentials||[]).map(x=>({...x,id:decode64(x.id)}))});
+const regJSON=c=>({id:c.id,rawId:encode64(c.rawId),type:c.type,
+ authenticatorAttachment:c.authenticatorAttachment,response:{
+ clientDataJSON:encode64(c.response.clientDataJSON),attestationObject:encode64(c.response.attestationObject),
+ transports:c.response.getTransports?.()||[]},clientExtensionResults:c.getClientExtensionResults()});
+const authJSON=c=>({id:c.id,rawId:encode64(c.rawId),type:c.type,
+ authenticatorAttachment:c.authenticatorAttachment,response:{
+ clientDataJSON:encode64(c.response.clientDataJSON),authenticatorData:encode64(c.response.authenticatorData),
+ signature:encode64(c.response.signature),
+ userHandle:c.response.userHandle?encode64(c.response.userHandle):null},
+ clientExtensionResults:c.getClientExtensionResults()});
+$("passkeyRegister").onclick=async()=>{
+ if(!window.PublicKeyCredential||!navigator.credentials?.create){notify("Passkey non disponibile su questo browser");return;}
+ try{
+  notify("Creazione della passkey sul telefono...");
+  const start=await api("/api/admin/passkey/register/options",{method:"POST",body:"{}"});
+  const credential=await navigator.credentials.create({publicKey:regOpts(start.options)});
+  if(!credential)throw Error("Registrazione annullata");
+  const result=await api("/api/admin/passkey/register/verify",{method:"POST",
+   body:JSON.stringify({challenge_id:start.challenge_id,credential:regJSON(credential)})});
+  notify("PASSKEY IN ATTESA. Codice da comunicare per l'approvazione: "+result.claim_code);
+ }catch(e){notify(e?.message||"Registrazione non completata");}
+};
+$("passkeyLogin").onclick=async()=>{
+ if(!window.PublicKeyCredential||!navigator.credentials?.get){notify("Passkey non disponibile su questo browser");return;}
+ try{
+  notify("Verifica impronta digitale o PIN Android...");
+  const start=await api("/api/admin/passkey/auth/options",{method:"POST",body:"{}"});
+  const credential=await navigator.credentials.get({publicKey:authOpts(start.options)});
+  if(!credential)throw Error("Autenticazione annullata");
+  const result=await api("/api/admin/passkey/auth/verify",{method:"POST",
+   body:JSON.stringify({challenge_id:start.challenge_id,credential:authJSON(credential)})});
+  passkeyLoggedIn=Boolean(result.authenticated);
+  if(passkeyLoggedIn)await refresh();
+ }catch(e){notify(e?.message||"Autenticazione non riuscita");}
+};
+async function restorePasskeySession(){
+ try{
+  const session=await api("/api/admin/passkey/session");
+  passkeyLoggedIn=Boolean(session.authenticated);
+  if(passkeyLoggedIn)await refresh();
+ }catch(_){passkeyLoggedIn=false;}
+}
+
 $("login").onclick=()=>{token=$("token").value.trim();$("token").value="";refresh();};
-$("refresh").onclick=refresh;$("logout").onclick=()=>{token="";$("pendingSection").classList.add("hidden");$("requests").replaceChildren();notify("Sessione chiusa");};
-setInterval(()=>{if(token && !document.hidden)refresh();},30000);
+$("refresh").onclick=refresh;
+$("logout").onclick=async()=>{
+ try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
+ token="";passkeyLoggedIn=false;$("pendingSection").classList.add("hidden");
+ $("requests").replaceChildren();notify("Sessione chiusa");
+};
+setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);
 if("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
-catalog();
+catalog();restorePasskeySession();
 </script></body></html>

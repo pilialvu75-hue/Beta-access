@@ -10,7 +10,8 @@
     "db": "wrangler d1 migrations apply beta-access --remote"
   },
   "dependencies": {
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "@simplewebauthn/server": "14.1.0"
   },
   "devDependencies": {
     "wrangler": "^4.45.0"
