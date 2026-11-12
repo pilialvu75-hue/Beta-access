@@ -60,6 +60,18 @@ export async function handleAdminPush(req,env,path) {
   }
   return reply({accepted,subscriptions:records.results.length});
  }
+ if(path==="/api/admin/push/keep-current"&&req.method==="POST") {
+  let input;
+  try{input=await readJson(req);}catch(_){return reply({error:"Invalid request"},400);}
+  if(!validPushEndpoint(input?.endpoint))return reply({error:"Invalid current phone subscription"},400);
+  const hash=await sha256hex(input.endpoint);
+  const current=await env.DB.prepare("SELECT endpoint_hash FROM admin_push_subscriptions WHERE endpoint_hash=?").bind(hash).first();
+  if(!current)return reply({error:"Enable push on this phone first"},409);
+  // Only an authenticated administrator can retire other phone notification endpoints.
+  // This does not revoke WebAuthn credentials, which must be managed independently.
+  const result=await env.DB.prepare("DELETE FROM admin_push_subscriptions WHERE endpoint_hash<>?").bind(hash).run();
+  return reply({current_only:true,removed:Number(result?.meta?.changes??0)});
+ }
  if(path==="/api/admin/push/subscriptions"&&req.method==="POST") {
   if(!pushConfigured(env))return reply({error:"Web Push not configured"},503);
   let sub;
