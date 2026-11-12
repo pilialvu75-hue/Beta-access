@@ -111,3 +111,47 @@ test("existing owner explicitly approves a matching pending phone; cannot revoke
   {"Authorization":"Bearer "+adminKey}),env,{});
  assert.equal(res.status,409);
 });
+
+test("old-phone push alerts can be removed only after registering the current phone",async()=>{
+ const {handleAdminPush}=await import("../src/push.mjs");
+ const endpoint="https://fcm.googleapis.com/fcm/send/new-phone";
+ const expectedHash=hash(endpoint);
+ let deleted=0;
+ const env={
+  VAPID_PUBLIC_KEY:"A".repeat(87),
+  VAPID_PRIVATE_KEY:"B".repeat(43),
+  VAPID_SUBJECT:"https://aivexus-beta-access.aivexus-lab.workers.dev",
+  DB:{
+   prepare(sql) {
+    let args=[];
+    return {
+     bind(...xs){args=xs;return this;},
+     async first(){
+      if(sql.startsWith("SELECT endpoint_hash FROM admin_push_subscriptions"))
+       return args[0]===expectedHash?{endpoint_hash:args[0]}:null;
+      throw Error("Unexpected D1 query: "+sql);
+     },
+     async run(){
+      if(sql.startsWith("DELETE FROM admin_push_subscriptions WHERE endpoint_hash<>?")){
+       assert.equal(args[0],expectedHash);
+       deleted+=2;
+       return {meta:{changes:2}};
+      }
+      throw Error("Unexpected D1 write: "+sql);
+     }
+    };
+   }
+  }
+ };
+ const url="/api/admin/push/retain-current";
+ let res=await handleAdminPush(post(url,{endpoint:"https://fcm.googleapis.com/fcm/send/other"}),env,url);
+ assert.equal(res.status,409);
+ assert.equal(deleted,0);
+ res=await handleAdminPush(post(url,{endpoint}),env,url);
+ assert.equal(res.status,200);
+ assert.deepEqual(await res.json(),{kept_current:true,removed:2});
+ assert.equal(deleted,2);
+ // The Worker enforces admin authentication before forwarding this sensitive action.
+ const publicResponse=await worker.fetch(post(url,{endpoint}),env,{});
+ assert.equal(publicResponse.status,401);
+});
