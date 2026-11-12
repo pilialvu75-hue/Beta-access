@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/worker.mjs && node --check src/core.mjs && node --check src/push.mjs && node --check public/service-worker.js",
+    "check": "node --check src/worker.mjs && node --check src/core.mjs && node --check src/push.mjs && node --check public/service-worker.js && node --check scripts/bootstrap-vapid.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db": "wrangler d1 migrations apply beta-access --remote"
