@@ -10,7 +10,7 @@
 
 ## One-time push bootstrap (independent Cloudflare account only)
 
-After GitHub CI has passed and the central Worker has been deployed, go to **GitHub → Beta-access → Actions → Initialize Android Web Push (one-time) → Run workflow**, confirm the account and run. The workflow reads only BETA_CF_API_TOKEN and BETA_CF_ACCOUNT_ID, generates a P-256 VAPID pair, saves VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT as Cloudflare Worker secrets and NEVER prints the private key. It refuses to regenerate if any VAPID secret already exists, preventing unintentional rotation.
+**Recommended one-step activation:** open **GitHub → Beta-access → Actions → Deploy Beta Access to Cloudflare (manual) → Run workflow**, set **Initialize Android Web Push = true**, leave **Enable tester download = false**, **Gated build confirmed = false**, then run. The job deploys the latest Worker code, applies D1 migrations and configures VAPID. Alternatively, the separate one-time workflow can initialize VAPID after a normal deploy. The workflow reads only BETA_CF_API_TOKEN and BETA_CF_ACCOUNT_ID, generates a P-256 VAPID pair, saves VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT as Cloudflare Worker secrets and NEVER prints the private key. It refuses to regenerate if any VAPID secret already exists, preventing unintentional rotation.
 
 Then on the Samsung S24 FE open https://aivexus-beta-access.aivexus-lab.workers.dev/admin/ in Chrome or the installed PWA, authenticate with fingerprint, tap **Attiva notifiche push** and permit Android notifications. To test actual background delivery, lock the phone and send a controlled request from a gated WEmulDroid beta.
 

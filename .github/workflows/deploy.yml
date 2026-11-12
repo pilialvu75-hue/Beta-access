@@ -2,6 +2,11 @@ name: Deploy Beta Access to Cloudflare (manual)
 on:
   workflow_dispatch:
     inputs:
+      initialize_web_push:
+        description: 'First-time setup: configure Android Web Push VAPID keys without exposing secrets'
+        type: boolean
+        required: false
+        default: false
       run_live_smoke:
         description: 'Test real enrollment/approval/revocation without tester distribution'
         type: boolean
@@ -90,6 +95,9 @@ jobs:
           if [[ -n "${DIAGNOSTICS_GITHUB_TOKEN:-}" ]]; then
             printf '%s' "$DIAGNOSTICS_GITHUB_TOKEN" | npx wrangler secret put DIAGNOSTICS_GITHUB_TOKEN
           fi
+      - name: Initialize Android Web Push (first-time only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.initialize_web_push == true }}
+        run: node scripts/bootstrap-vapid.mjs
       - name: Live API smoke test — synthetic device only
         if: ${{ (github.event_name == 'push' || inputs.run_live_smoke == true) && inputs.enable_tester_download != true }}
         run: node scripts/live-smoke.mjs
