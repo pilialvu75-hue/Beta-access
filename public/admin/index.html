@@ -100,7 +100,7 @@ function renderRequests(){
    v=>String(v||"").toLocaleLowerCase("it-IT").includes(search)))
  );
  const pending=knownRequests.filter(r=>r.state==="pending").length;
- $("requestsSummary").textContent=pending+" richieste in attesa · "+knownRequests.length+" installazioni totali";
+ $("requestsSummary").textContent=pending+" richieste in attesa · "+knownRequests.length+" installazioni in elenco (max 200)";
  $("requests").replaceChildren();
  if(!records.length){$("requests").textContent="Nessuna richiesta corrisponde ai filtri.";return;}
  for(const r of records){
