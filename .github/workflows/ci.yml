@@ -17,4 +17,19 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run check && node --check scripts/live-smoke.mjs
       - run: npm test
+      - name: Verify D1 migrations with SQLite in memory
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          db=sqlite3.connect(":memory:")
+          files=sorted(Path("migrations").glob("*.sql"))
+          for path in files:
+              db.executescript(path.read_text(encoding="utf-8"))
+          cols={row[1] for row in db.execute("PRAGMA table_info(admin_passkey_challenges)")}
+          assert "pairing_hash" in cols
+          tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          assert {"admin_phone_pairings","admin_push_subscriptions","admin_passkeys","installations"} <= tables
+          print("PASS: %d D1 migrations applied to SQLite." % len(files))
+          PY
       - run: npx wrangler deploy --dry-run --outdir ./dry-run-build
