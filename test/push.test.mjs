@@ -47,3 +47,24 @@ test("unconfigured test-push route does not send to arbitrary endpoints",async()
  const result=await handleAdminPush(req,{},"/api/admin/push/test");
  assert.equal(result.status,503);
 });
+
+test("old push devices can be retired only when the new phone already has an active subscription",async()=>{
+ const current="https://fcm.googleapis.com/fcm/send/current";
+ const url="https://beta.example.test/api/admin/push/keep-current";
+ const req=new Request(url,{method:"POST",headers:{origin:"https://beta.example.test"},body:JSON.stringify({endpoint:current})});
+ let removed=0;
+ const env={DB:{prepare(sql){
+  return {bind(){return this;},
+   async first(){return {endpoint_hash:"stored-current"};},
+   async run(){removed++;return {meta:{changes:2}};}
+  };
+ }}};
+ const approved=await handleAdminPush(req,env,"/api/admin/push/keep-current");
+ assert.equal(approved.status,200);
+ assert.deepEqual(await approved.json(),{current_only:true,removed:2});
+ assert.equal(removed,1);
+ const invalid=await handleAdminPush(new Request(url,{
+  method:"POST",headers:{origin:"https://beta.example.test"},
+  body:JSON.stringify({endpoint:"https://127.0.0.1/admin"})}),env,"/api/admin/push/keep-current");
+ assert.equal(invalid.status,400);
+});
