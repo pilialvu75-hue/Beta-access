@@ -44,6 +44,7 @@
 <p class="hint">Ricevi un avviso anche a telefono bloccato. Attivale una volta dopo l'accesso con impronta/PIN.</p>
 <div class="row"><button id="enablePush" type="button">Attiva notifiche push</button>
 <button id="disablePush" class="secondary" type="button">Disattiva notifiche</button>
+<button id="keepCurrentPush" class="secondary" type="button">Notifiche solo su questo telefono</button>
 <button id="testPush" class="secondary" type="button">Invia notifica di prova</button></div>
 <p id="pushStatus" class="hint" role="status">Accedi per gestire le notifiche.</p>
 </section><section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2><div id="requests"></div></section>
@@ -289,6 +290,20 @@ $("testPush").onclick=async()=>{
   pushMessage(reply.accepted>0?"Notifica inviata al servizio push. Controlla Android.":"Nessuna consegna accettata: controlla l'autorizzazione delle notifiche.");
  }catch(e){pushMessage(e?.message||"Test notifiche non riuscito.");}
  finally{$("testPush").disabled=false;}
+};
+$("keepCurrentPush").onclick=async()=>{
+ if(!(token||passkeyLoggedIn)){pushMessage("Accedi prima con impronta o PIN.");return;}
+ if(!window.confirm("Rimuovere le notifiche dai telefoni precedenti e conservarle soltanto su questo?"))return;
+ $("keepCurrentPush").disabled=true;
+ try {
+  const reg=await navigator.serviceWorker.ready;
+  const sub=await reg.pushManager.getSubscription();
+  if(!sub)throw Error("Attiva prima le notifiche su questo telefono.");
+  const result=await api("/api/admin/push/retain-current",{method:"POST",
+   body:JSON.stringify({endpoint:sub.endpoint})});
+  pushMessage("Notifiche mantenute su questo telefono. Vecchie sottoscrizioni disattivate: "+result.removed);
+ }catch(e){pushMessage(e?.message||"Non è stato possibile scollegare i vecchi telefoni.");}
+ finally{$("keepCurrentPush").disabled=false;}
 };
 $("disablePush").onclick=async()=>{
  if(!(token||passkeyLoggedIn))return;
