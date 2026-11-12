@@ -32,6 +32,13 @@
 <button id="disablePush" class="secondary" type="button">Disattiva notifiche</button>
 <button id="testPush" class="secondary" type="button">Invia notifica di prova</button></div>
 <p id="pushStatus" class="hint" role="status">Accedi per gestire le notifiche.</p>
+<details id="pushHelp"><summary>Notifiche bloccate? Guida per Android e Chrome</summary>
+<p class="hint"><strong>1.</strong> Apri Beta Access direttamente in <strong>Google Chrome</strong> o dalla sua icona installata, non nel browser interno di altre app.</p>
+<p class="hint"><strong>2.</strong> Su Galaxy: <strong>Impostazioni → Applicazioni → Chrome</strong> (o Beta Access se presente) <strong>→ Notifiche</strong> e autorizzale.</p>
+<p class="hint"><strong>3.</strong> In Chrome, sul sito Beta Access: menu ⋮ → <strong>Informazioni sito → Autorizzazioni → Notifiche → Consenti</strong>. In alternativa: Chrome → Impostazioni → Impostazioni sito → Notifiche, verifica i siti bloccati.</p>
+<p class="hint"><strong>4.</strong> Torna su Beta Access, accedi con impronta e premi <strong>Attiva notifiche push</strong>, poi <strong>Invia notifica di prova</strong>.</p>
+<p class="hint">Non cancellare passkey, dati sito né account. I nomi dei menu possono variare con Android.</p>
+</details>
 </section><section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2><div id="requests"></div></section>
 <p class="hint">Installazione su Android: apri questa pagina in Chrome → menu ⋮ → Aggiungi a schermata Home / Installa app. Le notifiche push possono arrivare anche quando l'app è chiusa; Android può ritardarle per il risparmio energetico.</p>
 </main>
@@ -152,9 +159,10 @@ async function refreshPushStatus() {
   }
   const config=await api("/api/admin/push/config");
   if(!config.available){pushMessage("Server push non ancora configurato.");return;}
+  if(Notification.permission==="denied"){pushMessage("Notifiche BLOCCATE in Chrome o Android. Apri la guida qui sotto.");$("pushHelp").open=true;return;}
   const reg=await navigator.serviceWorker.ready;
   const current=await reg.pushManager.getSubscription();
-  pushMessage(current?"Notifiche già attive su questo telefono.":"Premi Attiva notifiche push per ricevere le richieste.");
+  pushMessage(current?"Notifiche già attive su questo telefono.":"Permesso "+(Notification.permission==="granted"?"concesso":"da richiedere")+". Premi Attiva notifiche push.");
  }catch(_){pushMessage("Impossibile verificare le notifiche.");}
 }
 $("enablePush").onclick=async()=>{
@@ -163,9 +171,16 @@ $("enablePush").onclick=async()=>{
  try {
   if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))
    throw Error("Notifiche push non supportate da questo browser.");
+  if(Notification.permission==="denied"){
+   $("pushHelp").open=true;
+   throw Error("Notifiche BLOCCATE: segui la guida qui sotto per consentire il sito in Chrome/Android.");
+  }
   // Android/Chrome expects the permission prompt during the user-initiated click.
-  const permission=await Notification.requestPermission();
-  if(permission!=="granted")throw Error("Permesso notifiche non concesso da Android.");
+  const permission=Notification.permission==="granted"?"granted":await Notification.requestPermission();
+  if(permission!=="granted"){
+   $("pushHelp").open=true;
+   throw Error("Permesso non concesso. Controlla le autorizzazioni di Chrome e Android nella guida.");
+  }
   const config=await api("/api/admin/push/config");
   if(!config.available||!config.publicKey)throw Error("Configurazione server push ancora mancante.");
   const reg=await navigator.serviceWorker.ready;
