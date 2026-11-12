@@ -45,7 +45,7 @@
 <input id="requestSearch" type="search" placeholder="Nome dichiarato, app, ID installazione">
 <div class="row">
 <div style="flex:1;min-width:140px"><label for="requestApp">Applicazione</label><select id="requestApp"><option value="all">Tutte le app</option></select></div>
-<div style="flex:1;min-width:140px"><label for="requestState">Stato</label><select id="requestState"><option value="all">Tutti gli stati</option><option value="pending">In attesa</option><option value="approved">Autorizzate</option><option value="denied">Rifiutate</option><option value="revoked">Revocate</option></select></div>
+<div style="flex:1;min-width:140px"><label for="requestState">Stato</label><select id="requestState"><option value="all">Tutti gli stati</option><option value="pending">In attesa</option><option value="approved">Autorizzate</option><option value="denied">Rifiutate</option><option value="revoked">Revocate</option><option value="expired">Scadute</option></select></div>
 </div>
 <p class="hint">Il nome è dichiarato dal tester: non dimostra la sua identità. Per i futuri inviti nominativi servirà una verifica del destinatario.</p>
 <div id="requests"></div></section>
@@ -88,7 +88,7 @@ async function decide(id,action,days) {
  } catch(e){notify(e.message);}
 }
 const appNames={wemuldroid:"WEmulDroid"};
-const requestLabels={pending:"In attesa",approved:"Autorizzata",denied:"Rifiutata",revoked:"Revocata"};
+const requestLabels={pending:"In attesa",approved:"Autorizzata",denied:"Rifiutata",revoked:"Revocata",expired:"Scaduta"};
 let knownRequests=[];
 const readableApp=id=>appNames[id]||String(id||"Applicazione sconosciuta");
 function renderRequests(){
