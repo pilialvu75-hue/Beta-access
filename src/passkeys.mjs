@@ -75,8 +75,11 @@ async function findValidPairing(env,code) {
  return row?hash:null;
 }
 async function registerOptions(req,env) {
- let input;
- try {input=await json(req);}catch(_){return error("Richiesta non valida",400);}
+ // Legacy bootstrap clients may send POST with an empty body.
+ let input={};
+ if(req.body!==null) {
+  try {input=await json(req);}catch(_){return error("Richiesta non valida",400);}
+ }
  const isBootstrap=await openEnrollment(env);
  const pairingHash=isBootstrap?null:await findValidPairing(env,input?.pairing_code);
  if(!isBootstrap&&!pairingHash)return error("Nuovo telefono: richiedi un codice al dispositivo amministratore già autorizzato",403);
