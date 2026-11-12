@@ -40,3 +40,10 @@ test("Web Push can encrypt an actual RFC 8291 notification with generated P-256 
  assert.ok(headers.get("authorization"));
  assert.ok(payload.body);
 });
+
+test("unconfigured test-push route does not send to arbitrary endpoints",async()=>{
+ const req=new Request("https://beta.example.test/api/admin/push/test",{
+  method:"POST",headers:{"Origin":"https://beta.example.test"},body:"{}"});
+ const result=await handleAdminPush(req,{},"/api/admin/push/test");
+ assert.equal(result.status,503);
+});
