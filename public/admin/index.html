@@ -39,7 +39,16 @@
 <p class="hint"><strong>4.</strong> Torna su Beta Access, accedi con impronta e premi <strong>Attiva notifiche push</strong>, poi <strong>Invia notifica di prova</strong>.</p>
 <p class="hint">Non cancellare passkey, dati sito né account. I nomi dei menu possono variare con Android.</p>
 </details>
-</section><section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2><div id="requests"></div></section>
+</section><section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2>
+<p id="requestsSummary" class="hint"></p>
+<label for="requestSearch">Cerca tester, app o installazione</label>
+<input id="requestSearch" type="search" placeholder="Nome dichiarato, app, ID installazione">
+<div class="row">
+<div style="flex:1;min-width:140px"><label for="requestApp">Applicazione</label><select id="requestApp"><option value="all">Tutte le app</option></select></div>
+<div style="flex:1;min-width:140px"><label for="requestState">Stato</label><select id="requestState"><option value="all">Tutti gli stati</option><option value="pending">In attesa</option><option value="approved">Autorizzate</option><option value="denied">Rifiutate</option><option value="revoked">Revocate</option></select></div>
+</div>
+<p class="hint">Il nome è dichiarato dal tester: non dimostra la sua identità. Per i futuri inviti nominativi servirà una verifica del destinatario.</p>
+<div id="requests"></div></section>
 <p class="hint">Installazione su Android: apri questa pagina in Chrome → menu ⋮ → Aggiungi a schermata Home / Installa app. Le notifiche push possono arrivare anche quando l'app è chiusa; Android può ritardarle per il risparmio energetico.</p>
 </main>
 <script>
@@ -78,24 +87,82 @@ async function decide(id,action,days) {
  notify("Decisione registrata");await refresh();
  } catch(e){notify(e.message);}
 }
-async function refresh(){
- if(!token && !passkeyLoggedIn) {notify("Accedi con impronta / PIN oppure con la chiave di recupero");return;}
- $("pushSection").classList.remove("hidden");
- try {const data=await api("/api/admin/requests");$("pendingSection").classList.remove("hidden");$("requests").replaceChildren();
- if(!(data.requests||[]).length){$("requests").textContent="Nessuna installazione registrata.";}
- for(const r of data.requests||[]){
-   const div=document.createElement("div");div.className="card";
-   const name=document.createElement("div");name.className="label";name.textContent=r.label+" · "+r.app_id;
-   const info=document.createElement("p");info.className="hint";info.textContent=r.platform+" | "+r.version+" | "+r.id.slice(0,8)+" | richiesta "+new Date(r.requested_at).toLocaleString("it-IT");
-   const state=document.createElement("span");state.className="badge"+(r.state==="pending"?" pill":"");state.textContent=r.state+(r.approved_until?" · fino a "+new Date(r.approved_until).toLocaleDateString("it-IT"):"");
-   const row=document.createElement("div");row.className="row";row.style.marginTop="10px";
-   const days=document.createElement("select");for(const n of [1,7,30,90,365]){const opt=document.createElement("option");opt.value=n;opt.textContent=n+" giorni";if(n===30)opt.selected=true;days.append(opt);}
-   const yes=document.createElement("button");yes.textContent="Autorizza";yes.onclick=()=>decide(r.id,"approve",Number(days.value));
-   const no=document.createElement("button");no.textContent="Rifiuta";no.className="secondary";no.onclick=()=>decide(r.id,"deny");
-   const revoke=document.createElement("button");revoke.textContent="Revoca";revoke.className="danger";revoke.onclick=()=>decide(r.id,"revoke");
-   row.append(days,yes,no,revoke);div.append(name,info,state,row);$("requests").append(div);
+const appNames={wemuldroid:"WEmulDroid"};
+const requestLabels={pending:"In attesa",approved:"Autorizzata",denied:"Rifiutata",revoked:"Revocata"};
+let knownRequests=[];
+const readableApp=id=>appNames[id]||String(id||"Applicazione sconosciuta");
+function renderRequests(){
+ const search=$("requestSearch").value.trim().toLocaleLowerCase("it-IT");
+ const app=$("requestApp").value,stage=$("requestState").value;
+ const records=knownRequests.filter(r=>
+  (app==="all"||r.app_id===app)&&(stage==="all"||r.state===stage)&&
+  (!search||[r.label,r.app_id,readableApp(r.app_id),r.id,r.version,r.platform].some(
+   v=>String(v||"").toLocaleLowerCase("it-IT").includes(search)))
+ );
+ const pending=knownRequests.filter(r=>r.state==="pending").length;
+ $("requestsSummary").textContent=pending+" richieste in attesa · "+knownRequests.length+" installazioni totali";
+ $("requests").replaceChildren();
+ if(!records.length){$("requests").textContent="Nessuna richiesta corrisponde ai filtri.";return;}
+ for(const r of records){
+  const card=document.createElement("div");card.className="card";
+  const title=document.createElement("div");title.className="label";
+  title.textContent=readableApp(r.app_id)+" · "+String(r.platform||"").toUpperCase();
+  const who=document.createElement("p");
+  who.textContent="Tester dichiarato: "+(r.label||"Senza nome")+" (identità non verificata)";
+  const detail=document.createElement("p");detail.className="hint";
+  detail.textContent="Versione: "+(r.version||"sconosciuta")+
+   " · Installazione: "+String(r.id||"").slice(0,12)+
+   " · Richiesta: "+(r.requested_at?new Date(r.requested_at).toLocaleString("it-IT"):"data non disponibile");
+  const state=document.createElement("span");state.className="badge"+(r.state==="pending"?" pill":"");
+  state.textContent=(requestLabels[r.state]||r.state)+(r.approved_until?" · fino al "+new Date(r.approved_until).toLocaleDateString("it-IT"):"");
+  card.append(title,who,detail,state);
+  const smoke=String(r.version)==="0.0.0-smoke";
+  if(smoke){
+   const note=document.createElement("p");note.className="hint";
+   note.textContent="AUTOTEST CI · richiesta sintetica: non autorizzare.";
+   card.append(note);
+  }
+  const row=document.createElement("div");row.className="row";row.style.marginTop="10px";
+  const days=document.createElement("select");
+  for(const n of [1,7,30,90,365]){
+   const opt=document.createElement("option");opt.value=n;opt.textContent=n+" giorni";
+   if(n===30)opt.selected=true;
+   days.append(opt);
+  }
+  const approve=document.createElement("button");approve.textContent="Autorizza";
+  approve.disabled=smoke||r.state==="revoked";
+  approve.onclick=()=>decide(r.id,"approve",Number(days.value));
+  const deny=document.createElement("button");deny.textContent="Rifiuta";deny.className="secondary";
+  deny.disabled=smoke||r.state!=="pending";deny.onclick=()=>decide(r.id,"deny");
+  const revoke=document.createElement("button");revoke.textContent="Revoca";revoke.className="danger";
+  revoke.disabled=smoke||r.state!=="approved";revoke.onclick=()=>decide(r.id,"revoke");
+  row.append(days,approve,deny,revoke);card.append(row);$("requests").append(card);
  }
- notify(data.requests.length+" installazioni caricate");
+}
+$("requestSearch").addEventListener("input",renderRequests);
+$("requestApp").addEventListener("change",renderRequests);
+$("requestState").addEventListener("change",renderRequests);
+async function refresh(){
+ if(!token&&!passkeyLoggedIn){notify("Accedi con impronta / PIN oppure con la chiave di recupero");return;}
+ $("pushSection").classList.remove("hidden");
+ try{
+  const data=await api("/api/admin/requests");
+  $("pendingSection").classList.remove("hidden");
+  knownRequests=[...(data.requests||[])].sort((a,b)=>
+   Number(b.state==="pending")-Number(a.state==="pending")||
+   String(b.requested_at||"").localeCompare(String(a.requested_at||""))
+  );
+  const apps=[...new Set(knownRequests.map(r=>r.app_id).filter(Boolean))].sort();
+  const previous=$("requestApp").value;
+  $("requestApp").replaceChildren();
+  const all=document.createElement("option");all.value="all";all.textContent="Tutte le app";
+  $("requestApp").append(all);
+  for(const id of apps){
+   const opt=document.createElement("option");opt.value=id;opt.textContent=readableApp(id);$("requestApp").append(opt);
+  }
+  $("requestApp").value=apps.includes(previous)?previous:"all";
+  renderRequests();
+  notify(knownRequests.length+" installazioni caricate");
  }catch(e){notify(e.message);$("pendingSection").classList.add("hidden");}
 }
 // Native WebAuthn. Private keys, fingerprints and the device PIN never leave Android.
@@ -216,7 +283,7 @@ $("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";a
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;knownRequests=[];$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);
