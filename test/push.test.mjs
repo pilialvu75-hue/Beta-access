@@ -24,3 +24,19 @@ test("push config requires VAPID keys and is safe when unconfigured",async()=>{
   method:"POST",headers:{"origin":"https://evil.invalid"},body:"{}"});
  assert.equal((await handleAdminPush(invalid,{},"/api/admin/push/subscriptions")).status,403);
 });
+
+test("Web Push can encrypt an actual RFC 8291 notification with generated P-256 keys",async()=>{
+ const {generateKeyPairSync,randomBytes}=await import("node:crypto");
+ const {buildPushPayload}=await import("@block65/webcrypto-web-push");
+ const server=generateKeyPairSync("ec",{namedCurve:"prime256v1"}).privateKey.export({format:"jwk"});
+ const device=generateKeyPairSync("ec",{namedCurve:"prime256v1"}).publicKey.export({format:"jwk"});
+ const pub=jwk=>Buffer.concat([Buffer.from([4]),Buffer.from(jwk.x,"base64url"),Buffer.from(jwk.y,"base64url")]).toString("base64url");
+ const subscription={endpoint:"https://fcm.googleapis.com/fcm/send/mock-token",expirationTime:null,
+  keys:{p256dh:pub(device),auth:randomBytes(16).toString("base64url")}};
+ const vapid={subject:"https://aivexus-beta-access.aivexus-lab.workers.dev",publicKey:pub(server),privateKey:server.d};
+ const payload=await buildPushPayload({data:'{"title":"Beta Access","body":"Nuova richiesta"}',options:{ttl:300}},subscription,vapid);
+ assert.ok(payload&&payload.headers);
+ const headers=new Headers(payload.headers);
+ assert.ok(headers.get("authorization"));
+ assert.ok(payload.body);
+});
