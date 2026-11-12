@@ -51,10 +51,10 @@ async function readChallenge(env,id,type) {
  if(item) await env.DB.prepare("DELETE FROM admin_passkey_challenges WHERE id=?").bind(id).run(); // One use.
  return item;
 }
-async function storeChallenge(env,kind,challenge) {
+async function storeChallenge(env,kind,challenge,pairingHash=null) {
  const id=crypto.randomUUID();
- await env.DB.prepare("INSERT INTO admin_passkey_challenges(id,kind,challenge,expires_at) VALUES(?,?,?,?)")
-  .bind(id,kind,challenge,deadline(5*60*1000)).run();
+ await env.DB.prepare("INSERT INTO admin_passkey_challenges(id,kind,challenge,expires_at,pairing_hash) VALUES(?,?,?,?,?)")
+  .bind(id,kind,challenge,deadline(5*60*1000),pairingHash).run();
  return id;
 }
 async function activePasskeys(env) {
@@ -66,8 +66,24 @@ async function openEnrollment(env) {
  const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_passkeys WHERE status='approved'").first();
  return Number(count?.n||0)===0;
 }
-async function registerOptions(env) {
- if(!await openEnrollment(env))return error("Registrazione passkey chiusa: autorizzazione iniziale richiesta",403);
+async function registerOptions(req,env) {
+ // Initial provisioning is restricted to an empty admin database.
+ // Later phones need a short-lived invitation from an already authorized administrator.
+ const admins=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_passkeys WHERE status='approved'").first();
+ const alreadyInitialized=Number(admins?.n||0)>0;
+ let pairingHash=null;
+ if(alreadyInitialized) {
+  let input;
+  try {input=await json(req);}catch(_){return error("Codice di collegamento non valido",400);}
+  const pairingCode=typeof input?.pairing_code==="string"?input.pairing_code.trim().toUpperCase():"";
+  if(!/^[A-F0-9]{24}$/.test(pairingCode))return error("Codice di collegamento richiesto",403);
+  pairingHash=await sha256hex(pairingCode);
+  const invite=await env.DB.prepare("SELECT code_hash FROM admin_device_pairings WHERE code_hash=? AND used_at IS NULL AND expires_at>?")
+    .bind(pairingHash,now()).first();
+  if(!invite)return error("Codice scaduto, già utilizzato o non autorizzato",403);
+ }else if(!(await openEnrollment(env))) {
+  return error("Registrazione iniziale chiusa",403);
+ }
  const recent=new Date(Date.now()-30*60000).toISOString();
  const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_passkeys WHERE status='pending' AND created_at>?").bind(recent).first();
  if(Number(pending?.n||0)>=5)return error("Troppe richieste recenti. Riprovare più tardi",429);
@@ -78,14 +94,21 @@ async function registerOptions(env) {
   authenticatorSelection:{residentKey:"required",userVerification:"required"},
   preferredAuthenticatorType:"localDevice"
  });
- const challenge_id=await storeChallenge(env,"register",options.challenge);
+ const challenge_id=await storeChallenge(env,"register",options.challenge,pairingHash);
  return respond({challenge_id,options});
 }
 async function registerVerify(req,env) {
- if(!await openEnrollment(env))return error("Registrazione passkey chiusa",403);
  const body=await json(req);
  const expected=await readChallenge(env,body?.challenge_id,"register");
  if(!expected)return error("Registrazione scaduta o già usata",400);
+ const isPairing=Boolean(expected.pairing_hash);
+ if(isPairing){
+  const valid=await env.DB.prepare("SELECT code_hash FROM admin_device_pairings WHERE code_hash=? AND used_at IS NULL AND expires_at>?")
+   .bind(expected.pairing_hash,now()).first();
+  if(!valid)return error("Collegamento scaduto o già utilizzato",403);
+ }else if(!(await openEnrollment(env))) {
+  return error("Registrazione iniziale chiusa",403);
+ }
  let verified;
  try {
   verified=await verifyRegistrationResponse({
@@ -99,6 +122,13 @@ async function registerVerify(req,env) {
  const publicKey=bytesToB64url(info.publicKey);
  const existing=await env.DB.prepare("SELECT id FROM admin_passkeys WHERE id=?").bind(info.id).first();
  if(existing)return error("Passkey già registrata",409);
+ if(isPairing) {
+  // Atomic one-time consumption. A concurrent second claim must not enroll a new admin key.
+  const used=await env.DB.prepare(
+   "UPDATE admin_device_pairings SET used_at=? WHERE code_hash=? AND used_at IS NULL AND expires_at>?"
+  ).bind(now(),expected.pairing_hash,now()).run();
+  if(used?.meta?.changes!==1)return error("Codice di collegamento già utilizzato",403);
+ }
  await env.DB.prepare(
   "INSERT INTO admin_passkeys(id,public_key,counter,transports_json,status,claim_code,created_at) VALUES(?,?,?,?, 'pending', ?, ?)"
  ).bind(info.id,publicKey,info.counter,JSON.stringify(info.transports??[]),claimCode,now()).run();
@@ -150,10 +180,70 @@ async function logout(req,env) {
   "Set-Cookie":"beta_admin_session=; HttpOnly; Secure; SameSite=Strict; Path=/api/admin; Max-Age=0"
  });
 }
-export async function handlePasskey(req,env,path) {
+
+async function createDevicePairing(env) {
+ const recent=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_device_pairings WHERE created_at>?")
+  .bind(new Date(Date.now()-3600000).toISOString()).first();
+ if(Number(recent?.n||0)>=5)return error("Troppi collegamenti recenti, riprova più tardi",429);
+ // 96-bit one-time invitation. Only its SHA-256 is stored in D1.
+ const code=randomSecret().slice(0,24).toUpperCase();
+ const digest=await sha256hex(code);
+ const expires=deadline(10*60*1000);
+ await env.DB.prepare("INSERT INTO admin_device_pairings(code_hash,created_at,expires_at) VALUES(?,?,?)")
+  .bind(digest,now(),expires).run();
+ return respond({pairing_code:code,expires_at:expires,
+  message:"Copia questo codice sul nuovo telefono. Scade tra 10 minuti ed è monouso."});
+}
+async function pendingAdminDevices(env) {
+ const rows=await env.DB.prepare(
+  "SELECT id,claim_code,created_at FROM admin_passkeys WHERE status='pending' ORDER BY created_at DESC LIMIT 15"
+ ).all();
+ return respond({requests:rows.results??[]});
+}
+async function approvedAdminDevices(env) {
+ const rows=await env.DB.prepare(
+  "SELECT id,created_at,approved_at FROM admin_passkeys WHERE status='approved' ORDER BY approved_at DESC LIMIT 15"
+ ).all();
+ return respond({devices:rows.results??[]});
+}
+async function approveAdminDevice(req,env) {
+ let input;
+ try {input=await json(req);}catch(_){return error("Richiesta non valida",400);}
+ const code=typeof input?.claim_code==="string"?input.claim_code.trim().toUpperCase():"";
+ if(!/^[A-F0-9]{12}$/.test(code))return error("Codice richiesta non valido",400);
+ const changed=await env.DB.prepare(
+  "UPDATE admin_passkeys SET status='approved',approved_at=? WHERE claim_code=? AND status='pending'"
+ ).bind(now(),code).run();
+ if(changed?.meta?.changes!==1)return error("Richiesta non trovata o già decisa",404);
+ return respond({approved:true,claim_code:code});
+}
+async function revokeAdminDevice(req,env) {
+ let input;
+ try {input=await json(req);}catch(_){return error("Richiesta non valida",400);}
+ const id=input?.credential_id;
+ if(typeof id!=="string"||id.length<10||id.length>1024||!/^[A-Za-z0-9_-]+$/.test(id))
+  return error("Dispositivo non valido",400);
+ const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_passkeys WHERE status='approved'").first();
+ if(Number(count?.n||0)<=1)return error("Non puoi revocare l'ultimo telefono autorizzato",409);
+ const updated=await env.DB.prepare("UPDATE admin_passkeys SET status='revoked' WHERE id=? AND status='approved'")
+  .bind(id).run();
+ if(updated?.meta?.changes!==1)return error("Telefono non trovato",404);
+ await env.DB.prepare("DELETE FROM admin_sessions WHERE passkey_id=?").bind(id).run();
+ return respond({revoked:true});
+}
+export async function handlePasskey(req,env,path,authenticateAdmin=async()=>false) {
  // Don't allow WebAuthn from a preview/custom origin without deliberate migration.
  if(!requireOrigin(req))return error("Origine non autorizzata",403);
- if(path==="/api/admin/passkey/register/options"&&req.method==="POST")return registerOptions(env);
+ if(path.startsWith("/api/admin/passkey/pairing/")||path.startsWith("/api/admin/passkey/devices/")) {
+  if(!(await authenticateAdmin()))return error("Accesso amministratore richiesto",401);
+  if(path==="/api/admin/passkey/pairing/create"&&req.method==="POST")return createDevicePairing(env);
+  if(path==="/api/admin/passkey/devices/pending"&&req.method==="GET")return pendingAdminDevices(env);
+  if(path==="/api/admin/passkey/devices/approved"&&req.method==="GET")return approvedAdminDevices(env);
+  if(path==="/api/admin/passkey/devices/approve"&&req.method==="POST")return approveAdminDevice(req,env);
+  if(path==="/api/admin/passkey/devices/revoke"&&req.method==="POST")return revokeAdminDevice(req,env);
+  return error("Not found",404);
+ }
+ if(path==="/api/admin/passkey/register/options"&&req.method==="POST")return registerOptions(req,env);
  if(path==="/api/admin/passkey/register/verify"&&req.method==="POST")return registerVerify(req,env);
  if(path==="/api/admin/passkey/auth/options"&&req.method==="POST")return authOptions(env);
  if(path==="/api/admin/passkey/auth/verify"&&req.method==="POST")return authVerify(req,env);
