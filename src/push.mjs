@@ -40,6 +40,26 @@ export async function handleAdminPush(req,env,path) {
  if(!sameOrigin(req))return reply({error:"Invalid origin"},403);
  if(path==="/api/admin/push/config"&&req.method==="GET")
   return reply({available:pushConfigured(env),publicKey:pushConfigured(env)?env.VAPID_PUBLIC_KEY:null});
+ if(path==="/api/admin/push/test"&&req.method==="POST") {
+  if(!pushConfigured(env))return reply({error:"Web Push not configured"},503);
+  const records=await env.DB.prepare("SELECT endpoint_hash,endpoint,p256dh,auth FROM admin_push_subscriptions LIMIT 5").all();
+  if(!(records.results??[]).length)return reply({error:"No registered Android push devices"},409);
+  const vapid={subject:env.VAPID_SUBJECT,publicKey:env.VAPID_PUBLIC_KEY,privateKey:env.VAPID_PRIVATE_KEY};
+  const payload=JSON.stringify({title:"AIVEXUS Beta Access",body:"Notifica di prova",url:"/admin/"});
+  let accepted=0;
+  for(const sub of records.results) {
+   if(!validPushEndpoint(sub.endpoint))continue;
+   try {
+    const request=await buildPushPayload({data:payload,options:{ttl:120}},
+     {endpoint:sub.endpoint,keys:{p256dh:sub.p256dh,auth:sub.auth},expirationTime:null},vapid);
+    const result=await fetch(sub.endpoint,{...request,redirect:"manual",signal:AbortSignal.timeout(7000)});
+    if(result.ok)accepted++;
+    if(result.status===404||result.status===410)
+     await env.DB.prepare("DELETE FROM admin_push_subscriptions WHERE endpoint_hash=?").bind(sub.endpoint_hash).run();
+   }catch(_){}
+  }
+  return reply({accepted,subscriptions:records.results.length});
+ }
  if(path==="/api/admin/push/subscriptions"&&req.method==="POST") {
   if(!pushConfigured(env))return reply({error:"Web Push not configured"},503);
   let sub;
