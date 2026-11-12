@@ -74,6 +74,21 @@ export async function handleAdminPush(req,env,path) {
   ).bind(digest,sub.endpoint,sub.keys.p256dh,sub.keys.auth,now()).run();
   return reply({subscribed:true});
  }
+ if(path==="/api/admin/push/retain-current"&&req.method==="POST") {
+  if(!pushConfigured(env))return reply({error:"Web Push not configured"},503);
+  let input;
+  try{input=await readJson(req);}catch(_){return reply({error:"Invalid subscription"},400);}
+  if(!validPushEndpoint(input?.endpoint))return reply({error:"Invalid current push endpoint"},400);
+  const digest=await sha256hex(input.endpoint);
+  const current=await env.DB.prepare("SELECT endpoint_hash FROM admin_push_subscriptions WHERE endpoint_hash=?")
+   .bind(digest).first();
+  if(!current)return reply({error:"The new phone must activate notifications first"},409);
+  // An approved administrator can retain their own active endpoint and remove all others,
+  // including phones they no longer possess. New subscriptions can be added later.
+  const change=await env.DB.prepare("DELETE FROM admin_push_subscriptions WHERE endpoint_hash<>?")
+   .bind(digest).run();
+  return reply({kept_current:true,removed:Number(change?.meta?.changes||0)});
+ }
  if(path==="/api/admin/push/subscriptions"&&req.method==="DELETE") {
   let input;
   try{input=await readJson(req);}catch(_){return reply({error:"Invalid subscription"},400);}
