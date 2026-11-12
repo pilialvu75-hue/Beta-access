@@ -20,11 +20,25 @@
   <button id="passkeyLogin" type="button">Accedi con impronta / PIN</button>
   <button id="passkeyRegister" class="secondary" type="button">Registra questo telefono</button>
 </div>
-<p class="hint">Al primo utilizzo, la passkey deve essere approvata dall'amministratore Cloudflare. La registrazione non concede accesso automaticamente.</p>
+<label for="pairingCode">Codice nuovo telefono (solo se stai trasferendo l'accesso)</label>
+<input id="pairingCode" autocomplete="off" autocapitalize="off" spellcheck="false"
+placeholder="Incolla il codice creato dal telefono precedente">
+<p class="hint">La prima passkey richiede l'approvazione iniziale. Per sostituire il telefono, crea un codice temporaneo sul dispositivo amministratore già autorizzato. Nessuna nuova passkey riceve accesso automaticamente.</p>
 <details><summary>Accesso di recupero con chiave lunga</summary>
 <label for="token">Chiave amministratore</label><input id="token" type="password" autocomplete="off" placeholder="Chiave configurata sul server">
 <div class="row" style="margin-top:10px"><button id="login">Accedi con chiave lunga</button><button id="refresh" class="secondary">Aggiorna</button><button id="logout" class="secondary">Esci</button></div>
 <p class="hint">La chiave lunga, se utilizzata, resta in memoria soltanto durante questa sessione.</p></details><p id="notice" role="status"></p>
+</section>
+<section id="phonesSection" class="hidden">
+<h2>Telefoni amministratore</h2>
+<p class="hint">Quando cambi telefono, crea un codice di trasferimento sul vecchio dispositivo (15 minuti), usalo sul nuovo e approva la nuova passkey qui. Poi potrai revocare la precedente.</p>
+<button id="createPhoneCode" type="button">Prepara un nuovo telefono</button>
+<label for="transferCode">Codice temporaneo da inserire nel nuovo telefono</label>
+<div class="row"><input id="transferCode" readonly style="flex:1;min-width:190px" aria-label="Codice temporaneo">
+<button id="copyTransferCode" class="secondary" type="button">Copia</button></div>
+<button id="reloadPhones" class="secondary" type="button">Aggiorna telefoni</button>
+<p id="phoneStatus" class="hint" role="status"></p>
+<div id="phoneRequests"></div>
 </section>
 <section id="pushSection" class="hidden"><h2>Notifiche Android</h2>
 <p class="hint">Ricevi un avviso anche a telefono bloccato. Attivale una volta dopo l'accesso con impronta/PIN.</p>
@@ -74,6 +88,7 @@ async function decide(id,action,days) {
 async function refresh(){
  if(!token && !passkeyLoggedIn) {notify("Accedi con impronta / PIN oppure con la chiave di recupero");return;}
  $("pushSection").classList.remove("hidden");
+ if(passkeyLoggedIn){$("phonesSection").classList.remove("hidden");await refreshPhones();}
  try {const data=await api("/api/admin/requests");$("pendingSection").classList.remove("hidden");$("requests").replaceChildren();
  if(!(data.requests||[]).length){$("requests").textContent="Nessuna installazione registrata.";}
  for(const r of data.requests||[]){
@@ -112,11 +127,13 @@ $("passkeyRegister").onclick=async()=>{
  if(!window.PublicKeyCredential||!navigator.credentials?.create){notify("Passkey non disponibile su questo browser");return;}
  try{
   notify("Creazione della passkey sul telefono...");
-  const start=await api("/api/admin/passkey/register/options",{method:"POST",body:"{}"});
+  const pairing_code=$("pairingCode").value.trim();
+  const start=await api("/api/admin/passkey/register/options",{method:"POST",
+   body:JSON.stringify({pairing_code})});
   const credential=await navigator.credentials.create({publicKey:regOpts(start.options)});
   if(!credential)throw Error("Registrazione annullata");
   const result=await api("/api/admin/passkey/register/verify",{method:"POST",
-   body:JSON.stringify({challenge_id:start.challenge_id,credential:regJSON(credential)})});
+   body:JSON.stringify({challenge_id:start.challenge_id,credential:regJSON(credential),pairing_code})});
   notify("PASSKEY IN ATTESA. Codice da comunicare per l'approvazione: "+result.claim_code);
  }catch(e){notify(e?.message||"Registrazione non completata");}
 };
@@ -141,6 +158,62 @@ async function restorePasskeySession(){
  }catch(_){passkeyLoggedIn=false;}
 }
 
+
+
+// Existing approved phone can invite and explicitly approve a new administrator device.
+const phoneStatus=message=>$("phoneStatus").textContent=message;
+async function refreshPhones(){
+ if(!passkeyLoggedIn)return;
+ try{
+  const data=await api("/api/admin/passkey/phone-requests");
+  $("phoneRequests").replaceChildren();
+  for(const phone of data.passkeys||[]){
+   const row=document.createElement("div");row.className="card";
+   const title=document.createElement("p");
+   title.textContent="Passkey "+phone.claim_code+" · "+phone.status+" · "+new Date(phone.created_at).toLocaleString("it-IT");
+   row.append(title);
+   if(phone.status==="pending"){
+    const approve=document.createElement("button");approve.textContent="Approva nuovo telefono";
+    approve.onclick=async()=>{
+     const code=window.prompt("Confronta il codice mostrato sul NUOVO telefono, poi digita qui quei 12 caratteri:");
+     if(!code||code.trim().toUpperCase()!==phone.claim_code){phoneStatus("Codice diverso: approvazione annullata.");return;}
+     try{await api("/api/admin/passkey/phone-approve",{method:"POST",
+       body:JSON.stringify({claim_code:phone.claim_code})});
+      phoneStatus("Nuovo telefono approvato. Ora accedi sul nuovo e attiva le sue notifiche.");await refreshPhones();
+     }catch(e){phoneStatus(e.message);}
+    };
+    row.append(approve);
+   }
+   if(phone.status==="approved"){
+    const revoke=document.createElement("button");revoke.className="danger";
+    revoke.textContent="Revoca questa passkey";
+    revoke.onclick=async()=>{
+     if(!window.confirm("Revocare la passkey "+phone.claim_code+"? Fallo solo dopo aver verificato il nuovo telefono."))return;
+     try{await api("/api/admin/passkey/phone-revoke",{method:"POST",
+       body:JSON.stringify({claim_code:phone.claim_code})});
+      phoneStatus("Passkey revocata. Disattiva anche le vecchie notifiche push.");await refreshPhones();
+     }catch(e){phoneStatus(e.message);}
+    };
+    row.append(revoke);
+   }
+   $("phoneRequests").append(row);
+  }
+ }catch(e){phoneStatus(e.message);}
+}
+$("reloadPhones").onclick=refreshPhones;
+$("createPhoneCode").onclick=async()=>{
+ $("createPhoneCode").disabled=true;
+ try{
+  const data=await api("/api/admin/passkey/phone-pairings",{method:"POST",body:"{}"});
+  $("transferCode").value=data.pairing_code;
+  phoneStatus("Codice valido per 15 minuti. Copialo in modo privato sul nuovo telefono, poi premi Registra questo telefono lì.");
+ }catch(e){phoneStatus(e.message);}
+ finally{$("createPhoneCode").disabled=false;}
+};
+$("copyTransferCode").onclick=async()=>{
+ try{await navigator.clipboard.writeText($("transferCode").value);phoneStatus("Codice trasferimento copiato.");}
+ catch(_){$("transferCode").select();phoneStatus("Seleziona e copia il codice.");}
+};
 
 // Notifications are opt-in, only after an actual Android user gesture.
 const pushMessage=message=>$("pushStatus").textContent=message;
@@ -201,7 +274,8 @@ $("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";a
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;$("phonesSection").classList.add("hidden");
+ $("transferCode").value="";$("phoneRequests").replaceChildren();$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);
