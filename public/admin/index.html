@@ -29,7 +29,8 @@
 <section id="pushSection" class="hidden"><h2>Notifiche Android</h2>
 <p class="hint">Ricevi un avviso anche a telefono bloccato. Attivale una volta dopo l'accesso con impronta/PIN.</p>
 <div class="row"><button id="enablePush" type="button">Attiva notifiche push</button>
-<button id="disablePush" class="secondary" type="button">Disattiva notifiche</button></div>
+<button id="disablePush" class="secondary" type="button">Disattiva notifiche</button>
+<button id="testPush" class="secondary" type="button">Invia notifica di prova</button></div>
 <p id="pushStatus" class="hint" role="status">Accedi per gestire le notifiche.</p>
 </section><section id="pendingSection" class="hidden"><h2>Richieste e autorizzazioni</h2><div id="requests"></div></section>
 <p class="hint">Installazione su Android: apri questa pagina in Chrome → menu ⋮ → Aggiungi a schermata Home / Installa app. Le notifiche push possono arrivare anche quando l'app è chiusa; Android può ritardarle per il risparmio energetico.</p>
@@ -174,6 +175,15 @@ $("enablePush").onclick=async()=>{
   pushMessage("Notifiche push abilitate. Riceverai gli avvisi delle nuove richieste.");
  }catch(e){pushMessage(e?.message||"Attivazione notifiche non riuscita.");}
  finally{$("enablePush").disabled=false;}
+};
+$("testPush").onclick=async()=>{
+ if(!(token||passkeyLoggedIn)){pushMessage("Accedi prima con impronta o PIN.");return;}
+ $("testPush").disabled=true;
+ try {
+  const reply=await api("/api/admin/push/test",{method:"POST",body:"{}"});
+  pushMessage(reply.accepted>0?"Notifica inviata al servizio push. Controlla Android.":"Nessuna consegna accettata: controlla l'autorizzazione delle notifiche.");
+ }catch(e){pushMessage(e?.message||"Test notifiche non riuscito.");}
+ finally{$("testPush").disabled=false;}
 };
 $("disablePush").onclick=async()=>{
  if(!(token||passkeyLoggedIn))return;
