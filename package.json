@@ -4,14 +4,15 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/worker.mjs && node --check src/core.mjs",
+    "check": "node --check src/worker.mjs && node --check src/core.mjs && node --check src/push.mjs && node --check public/service-worker.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db": "wrangler d1 migrations apply beta-access --remote"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
-    "@simplewebauthn/server": "14.1.0"
+    "@simplewebauthn/server": "14.1.0",
+    "@block65/webcrypto-web-push": "2.0.0"
   },
   "devDependencies": {
     "wrangler": "^4.45.0"
