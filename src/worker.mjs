@@ -249,7 +249,7 @@ export default {
     if (path==="/api/v1/status" && req.method==="GET") return status(req,env,url);
     if (path==="/api/v1/telemetry" && req.method==="POST") return telemetry(req,env);
     if (path.startsWith("/api/admin/passkey/"))
-      return handlePasskey(req,env,path);
+      return handlePasskey(req,env,path,()=>adminAllowed(req,env));
     if (path.startsWith("/api/admin/")) {
       if (!await adminAllowed(req,env)) return fail("Administrator credentials required",401);
       if (path.startsWith("/api/admin/push/")) return handleAdminPush(req,env,path);
