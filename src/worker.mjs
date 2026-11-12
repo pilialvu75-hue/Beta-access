@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {handleAdminPush,enqueuePushRequest,deliverPendingPush} from "./push.mjs";
 import {handlePasskey,passkeySessionAllowed} from "./passkeys.mjs";
 import {APP, REPO, DIAGNOSTICS_REPO, UUID, HEX_SECRET, latestInstaller, validEnrollment, expiry, effectiveState, sanitizeTelemetry, sha256hex, constantTimeEqual} from "./core.mjs";
 
@@ -45,7 +46,7 @@ async function deviceRecord(req,env,id) {
   const dig = await sha256hex(secret.toLowerCase());
   return constantTimeEqual(dig,row.secret_sha256) ? row : null;
 }
-async function enroll(req,env) {
+async function enroll(req,env,ctx) {
   // The public QR/installer is disabled until a verified, gated beta is ready.
   // Allow only an administrator to create synthetic enrollment checks meanwhile.
   if (env.PUBLIC_TESTERS_ENABLED !== "true" && !(await adminAllowed(req,env))) {
@@ -57,22 +58,31 @@ async function enroll(req,env) {
   const secretHash = await sha256hex(body.device_secret.toLowerCase());
   const exists = await env.DB.prepare("SELECT * FROM installations WHERE id=?").bind(id).first();
   if (exists && !constantTimeEqual(exists.secret_sha256,secretHash)) return fail("Device key does not match",403);
+  let newlyPending=false;
   if (!exists) {
     const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM installations WHERE state='pending'").first();
     if ((count?.n ?? 0) >= 500) return fail("Queue is temporarily full",429);
     await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at) VALUES(?,?,?,?,?,?,'pending',?,?,?)")
       .bind(id,APP,secretHash,body.label,body.platform,body.version,iso(),body.telemetry_consent?1:0,iso()).run();
+    newlyPending=true;
   } else {
     // An explicit new request may re-open a denied, revoked or expired installation.
     const state = effectiveState(exists);
     if (state !== "approved" && state !== "pending") {
       await env.DB.prepare("UPDATE installations SET state='pending',approved_until=NULL,decided_at=NULL,requested_at=?,label=?,version=?,telemetry_consent=?,last_seen_at=? WHERE id=?")
         .bind(iso(),body.label,body.version,body.telemetry_consent?1:0,iso(),id).run();
+      newlyPending=true;
     } else {
       await env.DB.prepare("UPDATE installations SET version=?,last_seen_at=? WHERE id=?").bind(body.version,iso(),id).run();
     }
   }
   const row = await env.DB.prepare("SELECT state,approved_until FROM installations WHERE id=?").bind(id).first();
+  if (newlyPending && body.version!=="0.0.0-smoke") {
+    try {
+      await enqueuePushRequest(env,id);
+      if (ctx?.waitUntil) ctx.waitUntil(deliverPendingPush(env));
+    } catch(_) { /* Notification delivery never blocks successful enrollment. */ }
+  }
   return response({state:effectiveState(row),approved_until:row.approved_until});
 }
 async function status(req,env,url) {
@@ -235,13 +245,14 @@ export default {
         available:!!release,share_url:release?publicOrigin(req,env)+"/d/wemuldroid":null,
         message:release?null:"Inviti disattivati: manca una beta con attivazione autorizzata."});
     }
-    if (path==="/api/v1/enroll" && req.method==="POST") return enroll(req,env);
+    if (path==="/api/v1/enroll" && req.method==="POST") return enroll(req,env,ctx);
     if (path==="/api/v1/status" && req.method==="GET") return status(req,env,url);
     if (path==="/api/v1/telemetry" && req.method==="POST") return telemetry(req,env);
     if (path.startsWith("/api/admin/passkey/"))
       return handlePasskey(req,env,path);
     if (path.startsWith("/api/admin/")) {
       if (!await adminAllowed(req,env)) return fail("Administrator credentials required",401);
+      if (path.startsWith("/api/admin/push/")) return handleAdminPush(req,env,path);
       if (path==="/api/admin/requests" && req.method==="GET") return adminRequests(env);
       const match=/^\/api\/admin\/requests\/([a-f0-9-]+)\/decision$/i.exec(path);
       if (match && req.method==="POST") return adminDecision(req,env,match[1]);
@@ -257,5 +268,8 @@ export default {
     return fail("Service temporarily unavailable",503);
    }
  },
- async scheduled(_event,env,ctx) {ctx.waitUntil(flushDiagnostics(env));}
+ async scheduled(_event,env,ctx) {
+  ctx.waitUntil(flushDiagnostics(env));
+  ctx.waitUntil(deliverPendingPush(env));
+}
 };

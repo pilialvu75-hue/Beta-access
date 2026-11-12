@@ -1,0 +1,43 @@
+name: Initialize Android Web Push (one-time)
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_beta_account:
+        type: boolean
+        description: 'This uses only the independent Beta Access Cloudflare account'
+        required: true
+        default: false
+permissions:
+  contents: read
+jobs:
+  vapid:
+    if: ${{ inputs.confirm_beta_account == true }}
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.BETA_CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.BETA_CF_ACCOUNT_ID }}
+      ENABLE_TESTER_DOWNLOAD: 'false'
+      APPROVED_BETA_TAG: ''
+      GATED_BUILD_CONFIRMED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Bind existing Beta Access D1 without touching production
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo "::error::Missing dedicated Beta Access Cloudflare credentials"; exit 1
+          fi
+          db_id="$(npx wrangler d1 list --json | jq -r '.[] | select(.name == "beta-access") | .uuid' | head -1)"
+          if [[ -z "$db_id" ]]; then
+            echo "::error::Existing beta-access D1 database not found; refusing setup"; exit 1
+          fi
+          echo "D1_DATABASE_ID=$db_id" >> "$GITHUB_ENV"
+      - run: node scripts/prepare-deploy.mjs
+      - name: Generate VAPID once and store secrets without logging key values
+        run: node scripts/bootstrap-vapid.mjs
