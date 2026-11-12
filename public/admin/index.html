@@ -20,11 +20,25 @@
   <button id="passkeyLogin" type="button">Accedi con impronta / PIN</button>
   <button id="passkeyRegister" class="secondary" type="button">Registra questo telefono</button>
 </div>
-<p class="hint">Al primo utilizzo, la passkey deve essere approvata dall'amministratore Cloudflare. La registrazione non concede accesso automaticamente.</p>
+<p class="hint">La prima passkey richiede una conferma amministrativa. Per un telefono aggiuntivo usa la procedura protetta qui sotto.</p>
+<details><summary>Ho cambiato telefono / Aggiungi nuovo telefono</summary>
+<p class="hint">Genera un codice sul vecchio telefono già autorizzato. Il codice dura 10 minuti e non concede accesso da solo.</p>
+<label for="pairingCode">Codice di collegamento del nuovo telefono</label>
+<input id="pairingCode" autocomplete="off" maxlength="24" placeholder="24 caratteri" spellcheck="false">
+<button id="registerPairedPhone" type="button" class="secondary">Registra nuovo telefono con il codice</button>
+</details>
 <details><summary>Accesso di recupero con chiave lunga</summary>
 <label for="token">Chiave amministratore</label><input id="token" type="password" autocomplete="off" placeholder="Chiave configurata sul server">
 <div class="row" style="margin-top:10px"><button id="login">Accedi con chiave lunga</button><button id="refresh" class="secondary">Aggiorna</button><button id="logout" class="secondary">Esci</button></div>
 <p class="hint">La chiave lunga, se utilizzata, resta in memoria soltanto durante questa sessione.</p></details><p id="notice" role="status"></p>
+</section>
+<section id="phoneManagement" class="hidden"><h2>Telefoni amministratori</h2>
+<p class="hint">Quando cambi telefono, autorizza la registrazione dal dispositivo che possiedi già. Mantieni entrambi finché il nuovo non funziona.</p>
+<button id="makePairing" type="button">Genera codice per nuovo telefono</button>
+<p id="pairingOutput" class="hint"></p>
+<div class="row"><button id="refreshPhones" class="secondary" type="button">Aggiorna telefoni</button></div>
+<div id="pendingPhones"></div>
+<div id="approvedPhones"></div>
 </section>
 <section id="pushSection" class="hidden"><h2>Notifiche Android</h2>
 <p class="hint">Ricevi un avviso anche a telefono bloccato. Attivale una volta dopo l'accesso con impronta/PIN.</p>
@@ -120,6 +134,97 @@ $("passkeyRegister").onclick=async()=>{
   notify("PASSKEY IN ATTESA. Codice da comunicare per l'approvazione: "+result.claim_code);
  }catch(e){notify(e?.message||"Registrazione non completata");}
 };
+
+async function registerNewPhoneWithCode(){
+ const code=$("pairingCode").value.trim().toUpperCase();
+ if(!/^[0-9A-F]{24}$/.test(code)){notify("Inserisci il codice di 24 caratteri generato dal vecchio telefono.");return;}
+ if(!window.PublicKeyCredential||!navigator.credentials?.create){notify("Passkey non disponibile in questo browser.");return;}
+ $("registerPairedPhone").disabled=true;
+ try{
+  const start=await api("/api/admin/passkey/register/options",{
+   method:"POST",body:JSON.stringify({pairing_code:code})
+  });
+  const credential=await navigator.credentials.create({publicKey:regOpts(start.options)});
+  if(!credential)throw Error("Registrazione annullata");
+  const result=await api("/api/admin/passkey/register/verify",{
+   method:"POST",body:JSON.stringify({challenge_id:start.challenge_id,credential:regJSON(credential)})
+  });
+  $("pairingCode").value="";
+  notify("Nuovo telefono in attesa: mostra questo codice all'amministratore sul vecchio telefono: "+result.claim_code);
+ }catch(e){notify(e?.message||"Impossibile registrare il nuovo telefono.");}
+ finally{$("registerPairedPhone").disabled=false;}
+}
+$("registerPairedPhone").onclick=registerNewPhoneWithCode;
+$("makePairing").onclick=async()=>{
+ if(!(token||passkeyLoggedIn))return;
+ $("makePairing").disabled=true;
+ try{
+  const result=await api("/api/admin/passkey/pairing/create",{method:"POST",body:"{}"});
+  $("pairingOutput").textContent="Codice per il nuovo telefono (scade tra 10 minuti): "+result.pairing_code+
+   " — inseriscilo su Beta Access del nuovo dispositivo. Non condividerlo in chat.";
+ }catch(e){$("pairingOutput").textContent=e?.message||"Impossibile creare il codice.";}
+ finally{$("makePairing").disabled=false;}
+};
+async function refreshAdminPhones(){
+ if(!(token||passkeyLoggedIn))return;
+ $("phoneManagement").classList.remove("hidden");
+ try{
+  const [pending,approved]=await Promise.all([
+   api("/api/admin/passkey/devices/pending"),
+   api("/api/admin/passkey/devices/approved")
+  ]);
+  $("pendingPhones").replaceChildren();
+  $("approvedPhones").replaceChildren();
+  const heading=document.createElement("p");
+  heading.textContent="Nuovi telefoni in attesa: "+pending.requests.length;
+  $("pendingPhones").append(heading);
+  for(const phone of pending.requests){
+   const div=document.createElement("div");
+   div.className="card";
+   const text=document.createElement("p");
+   text.textContent="Codice richiesta "+phone.claim_code+" — "+new Date(phone.created_at).toLocaleString("it-IT");
+   const allow=document.createElement("button");
+   allow.textContent="Approva questo telefono";
+   allow.onclick=async()=>{
+    if(!window.confirm("Confermi che il codice "+phone.claim_code+" corrisponde al nuovo telefono che hai davanti?"))return;
+    try{
+     await api("/api/admin/passkey/devices/approve",{method:"POST",
+      body:JSON.stringify({claim_code:phone.claim_code})});
+     await refreshAdminPhones();
+    }catch(e){notify(e?.message||"Approvazione non riuscita.");}
+   };
+   div.append(text,allow);
+   $("pendingPhones").append(div);
+  }
+  const devices=document.createElement("p");
+  devices.textContent="Telefoni con passkey autorizzata: "+approved.devices.length;
+  $("approvedPhones").append(devices);
+  for(const [i,phone] of approved.devices.entries()){
+   const div=document.createElement("div");
+   div.className="card";
+   const caption=document.createElement("p");
+   caption.textContent="Telefono "+(i+1)+" — autorizzato "+
+    new Date(phone.approved_at||phone.created_at).toLocaleString("it-IT");
+   div.append(caption);
+   if(approved.devices.length>1){
+    const revoke=document.createElement("button");
+    revoke.className="danger";
+    revoke.textContent="Revoca passkey di questo telefono";
+    revoke.onclick=async()=>{
+     if(!window.confirm("Revocare davvero questa passkey? La vecchia sessione sarà disconnessa."))return;
+     try{
+      await api("/api/admin/passkey/devices/revoke",{method:"POST",body:JSON.stringify({credential_id:phone.id})});
+      await refreshAdminPhones();
+     }catch(e){notify(e?.message||"Revoca non riuscita.");}
+    };
+    div.append(revoke);
+   }
+   $("approvedPhones").append(div);
+  }
+ }catch(e){$("phoneManagement").classList.add("hidden");notify(e?.message||"Impossibile verificare i telefoni.");}
+}
+$("refreshPhones").onclick=refreshAdminPhones;
+
 $("passkeyLogin").onclick=async()=>{
  if(!window.PublicKeyCredential||!navigator.credentials?.get){notify("Passkey non disponibile su questo browser");return;}
  try{
@@ -130,14 +235,14 @@ $("passkeyLogin").onclick=async()=>{
   const result=await api("/api/admin/passkey/auth/verify",{method:"POST",
    body:JSON.stringify({challenge_id:start.challenge_id,credential:authJSON(credential)})});
   passkeyLoggedIn=Boolean(result.authenticated);
-  if(passkeyLoggedIn){await refresh();await refreshPushStatus();}
+  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();}
  }catch(e){notify(e?.message||"Autenticazione non riuscita");}
 };
 async function restorePasskeySession(){
  try{
   const session=await api("/api/admin/passkey/session");
   passkeyLoggedIn=Boolean(session.authenticated);
-  if(passkeyLoggedIn){await refresh();await refreshPushStatus();}
+  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();}
  }catch(_){passkeyLoggedIn=false;}
 }
 
@@ -197,11 +302,11 @@ $("disablePush").onclick=async()=>{
  }catch(e){pushMessage(e?.message||"Disattivazione non riuscita.");}
 };
 
-$("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";await refresh();await refreshPushStatus();};
+$("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";await refresh();await refreshPushStatus();await refreshAdminPhones();};
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;$("pushSection").classList.add("hidden");$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);
