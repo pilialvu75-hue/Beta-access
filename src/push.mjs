@@ -66,6 +66,10 @@ export async function handleAdminPush(req,env,path) {
 }
 export async function enqueuePushRequest(env,installationId) {
  if(!pushConfigured(env))return;
+ // Limit notification floods even if public enrollment is later opened.
+ const recent=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_notification_outbox WHERE created_at>=?")
+  .bind(new Date(Date.now()-3600000).toISOString()).first();
+ if(Number(recent?.n||0)>=20)return;
  const uuid=crypto.randomUUID();
  await env.DB.prepare(
   "INSERT INTO admin_notification_outbox(id,installation_id,app_id,created_at,attempts) VALUES(?,?,?, ?,0)"
