@@ -67,6 +67,7 @@ async function openEnrollment(env) {
  return Number(count?.n||0)===0;
 }
 async function registerOptions(req,env) {
+ if(!env.DB)return error("Registrazione iniziale chiusa",403);
  // Initial provisioning is restricted to an empty admin database.
  // Later phones need a short-lived invitation from an already authorized administrator.
  const admins=await env.DB.prepare("SELECT COUNT(*) AS n FROM admin_passkeys WHERE status='approved'").first();
