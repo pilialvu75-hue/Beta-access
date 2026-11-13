@@ -86,7 +86,7 @@ export async function claimEnrollmentInvite(env,row,id){
 export async function getInviteLanding(req,env,token){
  const record=await lookupInvite(env,token);
  if(!record)return htmlPage("Invito non trovato","<p>Questo invito non esiste o non è valido.</p>",404);
- if(!inviteUsable(record,record.claimed_installation_id??""))
+ if(record.claimed_installation_id||!inviteUsable(record,""))
   return htmlPage("Invito non disponibile","<p>Questo invito è scaduto, revocato o già utilizzato.</p>",410);
  const releaseReady=env.PUBLIC_TESTERS_ENABLED==="true"&&/^v\d+\.\d+\.\d+-beta\.\d+$/.test(env.APPROVED_BETA_TAG||"");
  // Never treat a token as proof of an email address; email verification is future work.
