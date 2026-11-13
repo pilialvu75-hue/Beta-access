@@ -49,7 +49,7 @@
 <div id="inviteList"></div>
 <details id="pilotReadiness"><summary>Preparazione del primo tester — controllo server</summary>
 <p class="hint">Verifica configurazione e notifiche, non l'installazione Windows reale. Non avvia un deploy e non abilita tester.</p>
-<button type="button" id="checkPilot">Verifica preparazione weekend</button>
+<div class="row"><button type="button" id="checkPilot">Verifica preparazione weekend</button><button type="button" id="copyPilotReport" class="secondary" disabled>Copia rapporto (senza dati personali)</button></div>
 <p id="pilotStatus" class="hint" role="status"></p>
 </details>
 </section>
@@ -393,7 +393,19 @@ async function refreshInvites(){
   }
  }catch(e){inviteMessage(e?.message||"Impossibile caricare gli inviti.");}
 }
+let pilotReport="";
+$("copyPilotReport").onclick=async()=>{
+ if(!pilotReport)return;
+ try{
+  await navigator.clipboard.writeText(pilotReport);
+  $("pilotStatus").textContent=pilotReport+"\n\nRapporto copiato. Non contiene chiavi, codici invito, email o identificativi.";
+ }catch(_){
+  $("pilotStatus").textContent=pilotReport+"\n\nCopia manualmente solo il testo qui sopra.";
+ }
+};
 $("checkPilot").onclick=async()=>{
+ pilotReport="";
+ $("copyPilotReport").disabled=true;
  $("checkPilot").disabled=true;
  $("pilotStatus").textContent="Verifica in corso…";
  try{
@@ -410,8 +422,15 @@ $("checkPilot").onclick=async()=>{
     "Collaudo Windows 11 reale: ancora da verificare",
     "Questo controllo non invia inviti né installa software."
   ];
-  $("pilotStatus").textContent=lines.join("\n");
+  pilotReport=[
+   "Beta Access — rapporto di preparazione (senza dati personali)",
+   ...lines
+  ].join("\n");
+  $("pilotStatus").textContent=pilotReport;
+  $("copyPilotReport").disabled=false;
  }catch(e){
+  pilotReport="";
+  $("copyPilotReport").disabled=true;
   $("pilotStatus").textContent="Controllo non disponibile: "+(e?.message||"errore")+
    ". Potrebbe essere necessario aggiornare il Worker dal workflow GitHub, lasciando il download pubblico disattivato.";
  }finally{$("checkPilot").disabled=false;}
@@ -556,7 +575,7 @@ $("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";a
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;$("createdInviteLink").value="";$("inviteQr").classList.add("hidden");$("inviteQr").removeAttribute("src");$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;pilotReport="";$("copyPilotReport").disabled=true;$("pilotStatus").textContent="";$("createdInviteLink").value="";$("inviteQr").classList.add("hidden");$("inviteQr").removeAttribute("src");$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);
