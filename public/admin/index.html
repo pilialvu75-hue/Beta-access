@@ -410,15 +410,31 @@ $("checkPilot").onclick=async()=>{
  $("pilotStatus").textContent="Verifica in corso…";
  try{
   const x=await api("/api/admin/pilot/readiness");
+  // Probe is read-only: never publish a diagnostics event from the dashboard.
+  const diag=await api("/api/admin/pilot/diagnostics-access").catch(()=>({status:"network_unavailable"}));
+  const diagStates={
+   write_reported:"GitHub raggiungibile · scrittura dichiarata (invio reale NON ancora testato)",
+   read_only:"GitHub raggiungibile · SOLO LETTURA — permessi insufficienti",
+   write_unknown:"GitHub raggiungibile · permesso di scrittura non confermato",
+   missing_token:"credenziale MANCANTE",
+   invalid_token:"token non valido (401)",
+   github_denied_or_rate_limited:"accesso GitHub negato o limite API (403)",
+   repository_not_accessible:"repository non accessibile con questo token (404)",
+   repository_mismatch:"repository GitHub inatteso",
+   github_error:"errore risposta GitHub",
+   network_unavailable:"verifica remota non disponibile"
+  };
   const lines=[
     "Database inviti: "+(x.private_invites_schema_ready?"OK":"DA AGGIORNARE"),
     "Passkey amministratore: "+(x.admin_passkeys_schema_ready?"schema OK":"schema mancante"),
     "Notifiche: "+(x.web_push_configured?"configurate":"configurazione mancante")+
       " · dispositivi registrati: "+x.push_subscriptions,
     "Diagnostics: "+(x.diagnostics_configured?"credenziale presente":"credenziale MANCANTE"),
+    "Diagnostics GitHub: "+(diagStates[diag.status]||"stato sconosciuto"),
     "Download pubblici: "+(x.public_download_enabled?"ATTIVI — NON IDONEO AL PILOTA PRIVATO":"disattivati"),
     "Modalità privata: "+(x.private_pilot_enabled?"attiva":"disattivata"),
     "Controlli infrastruttura: "+(x.infrastructure_checks_pass?"PASS":"NON COMPLETI"),
+    "Pubblicazione reale Diagnostics: NON ANCORA COLLAUDATA",
     "Collaudo Windows 11 reale: ancora da verificare",
     "Questo controllo non invia inviti né installa software."
   ];
