@@ -205,10 +205,12 @@ test("invite-only weekend pilot accepts exactly one invited installation without
  assert.equal(e.DB.installs.get(userId).invite_id,[...e.DB.invites.values()][0].id);
  resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token,otherId)),e,{});
  assert.equal(resp.status,403,"A second device cannot reuse the invite");
- for(const url of ["/d/wemuldroid","/download/wemuldroid","/download/invite/"+token]){
+ for(const url of ["/d/wemuldroid","/download/wemuldroid"]){
   const r=await worker.fetch(request(url),e,{});
   assert.equal(r.status,503,"Pilot cannot expose a public download: "+url);
  }
+ const privateDownload=await worker.fetch(request("/download/invite/"+token),e,{});
+ assert.equal(privateDownload.status,403,"Redeemed invite cannot be used to download again");
  const catalog=await worker.fetch(request("/api/catalog"),e,{});
  const data=await catalog.json();
  assert.equal(data.available,false);
