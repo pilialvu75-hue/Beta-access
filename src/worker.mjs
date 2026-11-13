@@ -169,6 +169,29 @@ async function adminPilotReadiness(env) {
     explanation:"Controllo server e notifiche soltanto: installazione Windows, firma e Diagnostics end-to-end richiedono una prova reale."
   });
 }
+// Read-only GitHub probe. Detects a token with insufficient repository access
+// before a tester arrives; it does NOT upload a diagnostic event or change GitHub.
+async function adminDiagnosticsAccess(env) {
+  const untested={remote_upload_tested:false};
+  if(!env.DIAGNOSTICS_GITHUB_TOKEN)
+    return response({...untested,status:"missing_token",repository_accessible:false,write_permission_reported:null});
+  try {
+    const r=await githubAPI(env,"",{signal:AbortSignal.timeout(6000),cache:"no-store"});
+    if(r.status===401)return response({...untested,status:"invalid_token",repository_accessible:false,write_permission_reported:null});
+    if(r.status===403)return response({...untested,status:"github_denied_or_rate_limited",repository_accessible:false,write_permission_reported:null});
+    if(r.status===404)return response({...untested,status:"repository_not_accessible",repository_accessible:false,write_permission_reported:null});
+    if(!r.ok)return response({...untested,status:"github_error",repository_accessible:false,write_permission_reported:null});
+    const metadata=await r.json();
+    if(metadata?.full_name!==DIAGNOSTICS_REPO)
+      return response({...untested,status:"repository_mismatch",repository_accessible:false,write_permission_reported:null});
+    const canPush=metadata?.permissions?.push;
+    const reported=typeof canPush==="boolean"?canPush:null;
+    const status=reported===true?"write_reported":reported===false?"read_only":"write_unknown";
+    return response({...untested,status,repository_accessible:true,write_permission_reported:reported});
+  }catch(_){
+    return response({...untested,status:"network_unavailable",repository_accessible:false,write_permission_reported:null});
+  }
+}
 async function adminRequests(env) {
   const data = await env.DB.prepare("SELECT i.id,i.app_id,i.label,i.platform,i.version,i.state,i.requested_at,i.decided_at,i.approved_until,i.telemetry_consent,i.last_seen_at,i.invite_id,t.tester_name AS intended_tester,t.tester_email AS intended_email FROM installations AS i LEFT JOIN tester_invites AS t ON i.invite_id=t.id ORDER BY CASE WHEN i.state='pending' THEN 0 ELSE 1 END,i.requested_at DESC LIMIT 200").all();
   return response({requests:(data.results ?? []).map(row=>({...row,state:effectiveState(row)}))});
@@ -343,6 +366,7 @@ export default {
     if (path.startsWith("/api/admin/")) {
       if (!await adminAllowed(req,env)) return fail("Administrator credentials required",401);
       if (path==="/api/admin/pilot/readiness" && req.method==="GET")return adminPilotReadiness(env);
+      if (path==="/api/admin/pilot/diagnostics-access" && req.method==="GET")return adminDiagnosticsAccess(env);
       if (path.startsWith("/api/admin/push/")) return handleAdminPush(req,env,path);
       if (path==="/api/admin/invites"&&req.method==="GET")return listInvites(env);
       if (path==="/api/admin/invites"&&req.method==="POST")return createInvite(req,env);
