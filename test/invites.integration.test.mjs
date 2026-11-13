@@ -122,7 +122,9 @@ test("private invitations are admin-authenticated, unverified recipient and one-
  assert.equal(JSON.stringify([...e.DB.invites.values()]).includes(token),false);
  resp=await worker.fetch(request("/i/"+token),e,{});
  assert.equal(resp.status,200);
- assert.match(await resp.text(),/Download tester ancora disattivati/);
+ const landing=await resp.text();
+ assert.match(landing,/Download tester ancora disattivati/);
+ assert.equal(landing.includes("tester@example.org"),false,"Do not expose intended email in public invitation page");
  resp=await worker.fetch(request("/api/v1/enroll","POST",enroll("invalid")),e,{});
  assert.equal(resp.status,403);
  resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token)),e,{});
@@ -157,4 +159,17 @@ test("expired, revoked and other-app invitations are not usable",()=>{
  assert.equal(inviteUsable({...row,expires_at:expired},userId),false);
  assert.equal(inviteUsable({...row,status:"revoked"},userId),false);
  assert.equal(inviteUsable({...row,claimed_installation_id:otherId},userId),false);
+});
+
+test("public download and QR cannot bypass invitations when sharing is enabled",async()=>{
+ const e=env();
+ for(const path of ["/d/wemuldroid","/download/wemuldroid","/qr/wemuldroid.svg",
+  "/download/invite/invalid"]){
+  const response=await worker.fetch(request(path),e,{});
+  assert.equal(response.status,403,path);
+ }
+ const catalog=await worker.fetch(request("/api/catalog"),{...e,PUBLIC_TESTERS_ENABLED:"false"},{});
+ const body=await catalog.json();
+ assert.equal(body.available,false);
+ assert.equal(body.share_url,null);
 });
