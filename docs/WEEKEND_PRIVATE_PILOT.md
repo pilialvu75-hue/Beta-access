@@ -2,6 +2,8 @@
 
 **Checkpoint 13 novembre:** la [distribuzione manuale #43497986595](https://github.com/pilialvu75-hue/Beta-access/actions/runs/43497986595) del Worker aggiornato alla PR #19 è **PASS**. Non ripetere il Passaggio A per inerzia: verificare prima il rapporto dal Galaxy. Il risultato del probe GitHub Diagnostics non equivale a conferma di pubblicazione; il test reale dei log e il collaudo Windows 11 rimangono aperti. Le prove in CI dell'archiviazione GitHub sono simulate e non pubblicano dati. L'attivazione del pilota privato e qualsiasi inoltro dell'invito richiedono una decisione separata del proprietario.
 
+**Diagnostica:** controllo permessi GitHub dichiarato PASS dal Galaxy (14 novembre); test di pubblicazione reale ancora da completare. Preparato [workflow manuale con consenso esplicito](DIAGNOSTICS_REAL_PROBE.md) per un unico evento sintetico (non eseguito automaticamente). Il pilota e le release esterne restano disattivati.
+
 **Stato:** predisposto nel codice, **non attivo in produzione**. L'invito a un amico non autorizza automaticamente alcuna installazione e non modifica AIVEXUS.
 
 ## Obiettivo del weekend
