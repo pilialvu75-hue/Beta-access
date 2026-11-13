@@ -49,3 +49,20 @@ test("owner sees an app-specific confirmation and unverified identity warning be
  assert.ok(script.indexOf('if(!window.confirm(confirmation))return;')>=0);
  assert.ok(script.indexOf('if(!window.confirm(confirmation))return;')<script.indexOf('await api("/api/admin/requests/'));
 });
+
+
+test("Galaxy can copy an intentionally anonymised readiness report without exposing tokens",()=>{
+ assert.ok(ui.includes('id="copyPilotReport"'),"Missing copy control");
+ assert.ok(ui.includes('pilotReport=""'),"Report buffer must start empty");
+ assert.ok(ui.includes('await navigator.clipboard.writeText(pilotReport)'),"Copy must use generated report");
+ assert.ok(ui.includes('senza dati personali'),"Privacy warning missing");
+ assert.ok(ui.includes('$("copyPilotReport").disabled=true'),"Should disable copy before reports exist");
+ assert.ok(ui.includes('$("copyPilotReport").disabled=false'),"Copy should enable after successful check");
+ const start=ui.indexOf('pilotReport=[');
+ const stop=ui.indexOf('].join("\\n");',start);
+ assert.ok(start>0&&stop>start,"Sanitised report text not found");
+ const block=ui.slice(start,stop);
+ for(const forbidden of ["invite_url","tester_email","claimed_installation_id","Authorization","VAPID_PRIVATE_KEY","DIAGNOSTICS_GITHUB_TOKEN","ADMIN_TOKEN"]){
+  assert.ok(!block.includes(forbidden),"Sensitive identifier included in report: "+forbidden);
+ }
+});
