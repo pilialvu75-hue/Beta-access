@@ -181,3 +181,36 @@ test("public download and QR cannot bypass invitations when sharing is enabled",
  assert.equal(body.available,false);
  assert.equal(body.share_url,null);
 });
+
+
+test("invite-only weekend pilot accepts exactly one invited installation without public downloads",async()=>{
+ const e=env();
+ e.PUBLIC_TESTERS_ENABLED="false";
+ // Turning on the public release flag is never required for an invite-only pilot.
+ let resp=await worker.fetch(request("/api/v1/enroll","POST",enroll("invalid")),e,{});
+ assert.equal(resp.status,403);
+ const created=await worker.fetch(request("/api/admin/invites","POST",inviteFields,auth),e,{});
+ assert.equal(created.status,201);
+ const token=(await created.json()).invite_url.split("/i/")[1];
+ resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token)),e,{});
+ assert.equal(resp.status,403,"Private pilot must stay off by default");
+ assert.equal(e.DB.installs.size,0);
+ e.PRIVATE_PILOT_ENROLLMENT_ENABLED="true";
+ resp=await worker.fetch(request("/api/v1/enroll","POST",enroll("invalid")),e,{});
+ assert.equal(resp.status,403,"Uninvited devices remain blocked with the pilot enabled");
+ resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token)),e,{});
+ assert.equal(resp.status,200);
+ assert.equal((await resp.json()).state,"pending","No one can automatically approve their own invitation");
+ assert.equal(e.DB.installs.get(userId).state,"pending");
+ assert.equal(e.DB.installs.get(userId).invite_id,[...e.DB.invites.values()][0].id);
+ resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token,otherId)),e,{});
+ assert.equal(resp.status,403,"A second device cannot reuse the invite");
+ for(const url of ["/d/wemuldroid","/download/wemuldroid","/download/invite/"+token]){
+  const r=await worker.fetch(request(url),e,{});
+  assert.equal(r.status,503,"Pilot cannot expose a public download: "+url);
+ }
+ const catalog=await worker.fetch(request("/api/catalog"),e,{});
+ const data=await catalog.json();
+ assert.equal(data.available,false);
+ assert.equal(data.share_url,null);
+});
