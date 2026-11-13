@@ -276,7 +276,8 @@ async function rotateOwnArchives(env,releaseId) {
     await githubAPI(env,"/releases/assets/"+asset.id,{method:"DELETE"});
   }
 }
-async function flushDiagnostics(env) {
+// Exported for deterministic, network-free relay regression tests; never exposed as an HTTP route.
+export async function flushDiagnostics(env) {
   if (!env.DIAGNOSTICS_GITHUB_TOKEN) return;
   const result = await env.DB.prepare("SELECT event_id,installation_id,payload_json FROM telemetry_outbox WHERE shipped_at IS NULL ORDER BY received_at LIMIT 25").all();
   const groups = new Map();
