@@ -9,6 +9,7 @@ import {resolve} from "node:path";
 const WORKER="https://aivexus-beta-access.aivexus-lab.workers.dev";
 const DIAG_REPO="pilialvu75-hue/Ai-orchestrator-diagnostics";
 const GH="https://api.github.com/repos/"+DIAG_REPO;
+export const PROBE_LABEL="AUTOTEST DIAGNOSTICS (synthetic)";
 const VERSION="0.0.0-smoke"; // The Worker explicitly suppresses push notifications for this version.
 const INTERVAL_MS=12000,MAX_POLLS=45;
 const EXPECTED_KEYS=["event","fields","instance","platform","producer","producer_version","schema","session","severity","timestamp"];
@@ -77,7 +78,7 @@ export async function runOwnerAuthorizedProbe() {
  const enroll={
   app_id:"wemuldroid",installation_id:id,device_secret:key,
   platform:"windows",version:VERSION,
-  label:"AUTOTEST DIAGNOSTICS (synthetic, revoke after run)",
+  label:PROBE_LABEL,
   telemetry_consent:true
  };
  const decision=WORKER+"/api/admin/requests/"+id+"/decision";
