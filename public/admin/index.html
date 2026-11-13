@@ -32,6 +32,21 @@
 <div class="row" style="margin-top:10px"><button id="login">Accedi con chiave lunga</button><button id="refresh" class="secondary">Aggiorna</button><button id="logout" class="secondary">Esci</button></div>
 <p class="hint">La chiave lunga, se utilizzata, resta in memoria soltanto durante questa sessione.</p></details><p id="notice" role="status"></p>
 </section>
+<section id="inviteSection" class="hidden"><h2>Inviti privati per applicazione</h2>
+<p class="hint">Prepara link nominativi e revocabili. <strong>Un link ricevuto non verifica ancora l'email o l'identità del tester.</strong> Per ora è supportato soltanto WEmulDroid.</p>
+<label for="inviteApp">Applicazione</label><select id="inviteApp"><option value="wemuldroid">WEmulDroid · Windows</option></select>
+<label for="inviteName">Nome del tester previsto</label><input id="inviteName" maxlength="64" placeholder="Per esempio: Marco">
+<label for="inviteEmail">Email del destinatario previsto</label><input id="inviteEmail" type="email" autocomplete="off" placeholder="marco@esempio.com">
+<label for="inviteDays">Scadenza invito</label><select id="inviteDays"><option value="1">1 giorno</option><option value="7" selected>7 giorni</option><option value="14">14 giorni</option><option value="30">30 giorni</option></select>
+<div class="row"><button id="createInvite">Crea invito privato</button><button id="refreshInvites" class="secondary">Aggiorna inviti</button></div>
+<p id="inviteMessage" class="hint" role="status"></p>
+<div id="newInvite" class="hidden">
+<label for="createdInviteLink">Link monouso (copialo adesso, non sarà mostrato dopo)</label>
+<input id="createdInviteLink" readonly>
+<div class="row"><button id="copyInvite">Copia link</button><button id="emailInvite" class="secondary">Prepara email</button></div>
+</div>
+<div id="inviteList"></div>
+</section>
 <section id="phoneManagement" class="hidden"><h2>Telefoni amministratori</h2>
 <p class="hint">Quando cambi telefono, autorizza la registrazione dal dispositivo che possiedi già. Mantieni entrambi finché il nuovo non funziona.</p>
 <button id="makePairing" type="button">Genera codice per nuovo telefono</button>
@@ -145,13 +160,24 @@ function renderRequests(){
   title.textContent=readableApp(r.app_id)+" · "+String(r.platform||"").toUpperCase();
   const who=document.createElement("p");
   who.textContent="Tester dichiarato: "+(r.label||"Senza nome")+" (identità non verificata)";
+  const intended=document.createElement("p");intended.className="hint";
+  if(r.invite_id){
+   intended.textContent="Invito previsto per: "+(r.intended_tester||"sconosciuto")+
+    " · "+(r.intended_email||"email sconosciuta")+" (email NON verificata)";
+   if(r.intended_tester && r.label &&
+      r.intended_tester.trim().toLocaleLowerCase("it-IT")!==r.label.trim().toLocaleLowerCase("it-IT")){
+    const warning=document.createElement("p");warning.className="hint";
+    warning.textContent="ATTENZIONE: il nome dichiarato dall'installazione è diverso da quello dell'invito.";
+    intended.append(warning);
+   }
+  }
   const detail=document.createElement("p");detail.className="hint";
   detail.textContent="Versione: "+(r.version||"sconosciuta")+
    " · Installazione: "+String(r.id||"").slice(0,12)+
    " · Richiesta: "+(r.requested_at?new Date(r.requested_at).toLocaleString("it-IT"):"data non disponibile");
   const state=document.createElement("span");state.className="badge"+(r.state==="pending"?" pill":"");
   state.textContent=(requestLabels[r.state]||r.state)+(r.approved_until?" · fino al "+new Date(r.approved_until).toLocaleDateString("it-IT"):"");
-  card.append(title,who,detail,state);
+  card.append(title,who);if(r.invite_id)card.append(intended);card.append(detail,state);
   const smoke=String(r.version)==="0.0.0-smoke";
   if(smoke){
    const note=document.createElement("p");note.className="hint";
@@ -320,6 +346,79 @@ async function refreshAdminPhones(){
 }
 $("refreshPhones").onclick=refreshAdminPhones;
 
+// Owner-created private invitations. The URL token is displayed only at creation,
+// never stored in localStorage and never returned by the invitation list API.
+let lastInvite=null;
+const inviteMessage=s=>$("inviteMessage").textContent=s;
+async function refreshInvites(){
+ if(!(token||passkeyLoggedIn))return;
+ $("inviteSection").classList.remove("hidden");
+ try{
+  const data=await api("/api/admin/invites");
+  $("inviteList").replaceChildren();
+  const intro=document.createElement("p");
+  intro.className="hint";
+  intro.textContent=(data.invites||[]).length+" inviti recenti (massimo 100)";
+  $("inviteList").append(intro);
+  for(const inv of data.invites||[]){
+   const card=document.createElement("div");card.className="card";
+   const title=document.createElement("p");
+   title.textContent="WEmulDroid · "+inv.tester_name+" · "+inv.tester_email+" (destinatario non verificato)";
+   const info=document.createElement("p");info.className="hint";
+   const expired=Date.parse(inv.expires_at)<=Date.now();
+   info.textContent=(inv.status==="revoked"?"Revocato":expired?"Scaduto":inv.claimed_installation_id?"Utilizzato":"In attesa")+
+    " · Scadenza: "+new Date(inv.expires_at).toLocaleString("it-IT")+
+    (inv.claimed_installation_id?" · Installazione: "+inv.claimed_installation_id.slice(0,12):"");
+   card.append(title,info);
+   if(inv.status!=="revoked"){
+    const revoke=document.createElement("button");revoke.className="danger";
+    revoke.textContent="Revoca invito";
+    revoke.onclick=async()=>{
+     if(!window.confirm("Revocare l'invito per "+inv.tester_name+"? Se già utilizzato, sarà revocato anche l'accesso all'app."))return;
+     try{
+      const result=await api("/api/admin/invites/"+encodeURIComponent(inv.id)+"/revoke",{method:"POST",body:"{}"});
+      inviteMessage(result.installation_revoked?"Invito e installazione revocati.":"Invito revocato.");
+      await refreshInvites();await refresh();
+     }catch(e){inviteMessage(e.message);}
+    };
+    card.append(revoke);
+   }
+   $("inviteList").append(card);
+  }
+ }catch(e){inviteMessage(e?.message||"Impossibile caricare gli inviti.");}
+}
+$("refreshInvites").onclick=refreshInvites;
+$("createInvite").onclick=async()=>{
+ if(!(token||passkeyLoggedIn))return inviteMessage("Accedi come amministratore.");
+ const payload={app_id:$("inviteApp").value,tester_name:$("inviteName").value.trim(),
+  tester_email:$("inviteEmail").value.trim(),expires_days:Number($("inviteDays").value)};
+ if(!payload.tester_name||!$("inviteEmail").checkValidity())return inviteMessage("Inserisci nome e indirizzo email valido.");
+ $("createInvite").disabled=true;
+ $("newInvite").classList.add("hidden");
+ lastInvite=null;$("createdInviteLink").value="";
+ try{
+  const created=await api("/api/admin/invites",{method:"POST",body:JSON.stringify(payload)});
+  lastInvite=created;
+  $("createdInviteLink").value=created.invite_url;
+  $("newInvite").classList.remove("hidden");
+  inviteMessage("Invito creato. Email NON verificata; il link non concede accesso senza approvazione. Il download è ancora disabilitato.");
+  await refreshInvites();
+ }catch(e){inviteMessage(e?.message||"Impossibile creare l'invito.");}
+ finally{$("createInvite").disabled=false;}
+};
+$("copyInvite").onclick=async()=>{
+ if(!lastInvite)return;
+ try{await navigator.clipboard.writeText(lastInvite.invite_url);inviteMessage("Link copiato. Condividilo soltanto con il destinatario.");}
+ catch(_){$("createdInviteLink").select();inviteMessage("Seleziona e copia il link.");}
+};
+$("emailInvite").onclick=()=>{
+ if(!lastInvite)return;
+ const subject=encodeURIComponent("Invito beta privato WEmulDroid");
+ const body=encodeURIComponent("Ti invito a provare WEmulDroid. Il link e il codice sono personali:\n"+
+  lastInvite.invite_url+"\n\nL'installazione richiede una mia autorizzazione prima dell'uso. Non inoltrare questo invito.");
+ location.href="mailto:"+lastInvite.tester_email+"?subject="+subject+"&body="+body;
+};
+
 $("passkeyLogin").onclick=async()=>{
  if(!window.PublicKeyCredential||!navigator.credentials?.get){notify("Passkey non disponibile su questo browser");return;}
  try{
@@ -330,14 +429,14 @@ $("passkeyLogin").onclick=async()=>{
   const result=await api("/api/admin/passkey/auth/verify",{method:"POST",
    body:JSON.stringify({challenge_id:start.challenge_id,credential:authJSON(credential)})});
   passkeyLoggedIn=Boolean(result.authenticated);
-  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();}
+  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();}
  }catch(e){notify(e?.message||"Autenticazione non riuscita");}
 };
 async function restorePasskeySession(){
  try{
   const session=await api("/api/admin/passkey/session");
   passkeyLoggedIn=Boolean(session.authenticated);
-  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();}
+  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();}
  }catch(_){passkeyLoggedIn=false;}
 }
 
@@ -419,11 +518,11 @@ $("disablePush").onclick=async()=>{
  }catch(e){pushMessage(e?.message||"Disattivazione non riuscita.");}
 };
 
-$("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";await refresh();await refreshPushStatus();await refreshAdminPhones();};
+$("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();};
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;knownRequests=[];$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;$("createdInviteLink").value="";$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);

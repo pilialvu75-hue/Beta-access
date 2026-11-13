@@ -28,7 +28,7 @@ test("approvals clearly distinguish the app, claimed tester and actual installat
  assert.ok(ui.includes("readableApp(r.app_id)"));
  assert.ok(ui.includes('r.version||"sconosciuta"'));
  assert.ok(ui.includes("0.0.0-smoke"));
- assert.ok(worker.includes("ORDER BY CASE WHEN state='pending' THEN 0 ELSE 1 END,requested_at DESC LIMIT 200"));
+ assert.ok(worker.includes("ORDER BY CASE WHEN i.state='pending' THEN 0 ELSE 1 END,i.requested_at DESC LIMIT 200"));
 });
 test("VAPID init reuses a complete key set, but refuses destructive partial rotation",()=>{
  assert.ok(bootstrap.includes("present.size===required.length"));

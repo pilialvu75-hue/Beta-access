@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {createInvite,listInvites,revokeInvite,getInviteLanding,verifyEnrollmentInvite,claimEnrollmentInvite} from "./invites.mjs";
 import {handleAdminPush,enqueuePushRequest,deliverPendingPush} from "./push.mjs";
 import {handlePasskey,passkeySessionAllowed} from "./passkeys.mjs";
 import {APP, REPO, DIAGNOSTICS_REPO, UUID, HEX_SECRET, latestInstaller, validEnrollment, expiry, effectiveState, sanitizeTelemetry, sha256hex, constantTimeEqual} from "./core.mjs";
@@ -47,41 +48,62 @@ async function deviceRecord(req,env,id) {
   return constantTimeEqual(dig,row.secret_sha256) ? row : null;
 }
 async function enroll(req,env,ctx) {
-  // The public QR/installer is disabled until a verified, gated beta is ready.
-  // Allow only an administrator to create synthetic enrollment checks meanwhile.
-  if (env.PUBLIC_TESTERS_ENABLED !== "true" && !(await adminAllowed(req,env))) {
-    return fail("Tester enrollment is not enabled",403);
-  }
-  const body = await readJson(req);
-  if (!validEnrollment(body)) return fail("Invalid enrollment");
-  const id = body.installation_id.toLowerCase();
-  const secretHash = await sha256hex(body.device_secret.toLowerCase());
-  const exists = await env.DB.prepare("SELECT * FROM installations WHERE id=?").bind(id).first();
-  if (exists && !constantTimeEqual(exists.secret_sha256,secretHash)) return fail("Device key does not match",403);
+  // Enrollment remains disabled until a gated WEmulDroid build has been tested.
+  // When enabled, every public enrollment requires a private app-specific invitation.
+  const administrator=await adminAllowed(req,env);
+  const publicEnrollment=env.PUBLIC_TESTERS_ENABLED==="true";
+  if(!publicEnrollment&&!administrator)return fail("Tester enrollment is not enabled",403);
+  const body=await readJson(req);
+  if(!validEnrollment(body))return fail("Invalid enrollment");
+  const id=body.installation_id.toLowerCase();
+  const secretHash=await sha256hex(body.device_secret.toLowerCase());
+  const inviteRequired=publicEnrollment&&!administrator;
+  const invite=inviteRequired?await verifyEnrollmentInvite(env,body.invite_token,id):null;
+  if(inviteRequired&&!invite)return fail("Valid private invitation required",403);
+  const exists=await env.DB.prepare("SELECT * FROM installations WHERE id=?").bind(id).first();
+  if(exists && !constantTimeEqual(exists.secret_sha256,secretHash))
+    return fail("Device key does not match",403);
+  if(inviteRequired&&exists&&exists.invite_id!==invite.id)
+    return fail("This installation belongs to another invitation",403);
   let newlyPending=false;
-  if (!exists) {
-    const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM installations WHERE state='pending'").first();
-    if ((count?.n ?? 0) >= 500) return fail("Queue is temporarily full",429);
-    await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at) VALUES(?,?,?,?,?,?,'pending',?,?,?)")
-      .bind(id,APP,secretHash,body.label,body.platform,body.version,iso(),body.telemetry_consent?1:0,iso()).run();
+  if(!exists){
+    const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM installations WHERE state='pending'").first();
+    if((count?.n??0)>=500)return fail("Queue is temporarily full",429);
+    // Claim the invite *before* inserting the device so no unclaimed installation
+    // can briefly appear in the admin queue during concurrent enrollment.
+    if(inviteRequired&&!(await claimEnrollmentInvite(env,invite,id)))
+      return fail("Invitation already used by another installation",403);
+    try{
+      await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at,invite_id) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)")
+        .bind(id,APP,secretHash,body.label,body.platform,body.version,iso(),body.telemetry_consent?1:0,iso(),invite?.id??null).run();
+    }catch(e){
+      if(inviteRequired){
+        // Recover the single-use token if a database insert failed. Restrict
+        // the rollback to this exact invite + installation pair.
+        try{
+          await env.DB.prepare("UPDATE tester_invites SET claimed_installation_id=NULL,claimed_at=NULL WHERE id=? AND claimed_installation_id=?")
+            .bind(invite.id,id).run();
+        }catch(_){ /* Leave the invite unusable rather than loosen authorization. */ }
+      }
+      throw e;
+    }
     newlyPending=true;
-  } else {
-    // An explicit new request may re-open a denied, revoked or expired installation.
-    const state = effectiveState(exists);
-    if (state !== "approved" && state !== "pending") {
+  }else{
+    const state=effectiveState(exists);
+    if(state!=="approved"&&state!=="pending"){
       await env.DB.prepare("UPDATE installations SET state='pending',approved_until=NULL,decided_at=NULL,requested_at=?,label=?,version=?,telemetry_consent=?,last_seen_at=? WHERE id=?")
         .bind(iso(),body.label,body.version,body.telemetry_consent?1:0,iso(),id).run();
       newlyPending=true;
-    } else {
+    }else{
       await env.DB.prepare("UPDATE installations SET version=?,last_seen_at=? WHERE id=?").bind(body.version,iso(),id).run();
     }
   }
-  const row = await env.DB.prepare("SELECT state,approved_until FROM installations WHERE id=?").bind(id).first();
-  if (newlyPending && body.version!=="0.0.0-smoke") {
+  const row=await env.DB.prepare("SELECT state,approved_until FROM installations WHERE id=?").bind(id).first();
+  if(newlyPending&&body.version!=="0.0.0-smoke"){
     try {
       await enqueuePushRequest(env,id);
-      if (ctx?.waitUntil) ctx.waitUntil(deliverPendingPush(env));
-    } catch(_) { /* Notification delivery never blocks successful enrollment. */ }
+      if(ctx?.waitUntil)ctx.waitUntil(deliverPendingPush(env));
+    }catch(_){ /* Notification failure does not block an otherwise valid request. */ }
   }
   return response({state:effectiveState(row),approved_until:row.approved_until});
 }
@@ -107,7 +129,7 @@ async function telemetry(req,env) {
   return response({accepted:true});
 }
 async function adminRequests(env) {
-  const data = await env.DB.prepare("SELECT id,app_id,label,platform,version,state,requested_at,decided_at,approved_until,telemetry_consent,last_seen_at FROM installations ORDER BY CASE WHEN state='pending' THEN 0 ELSE 1 END,requested_at DESC LIMIT 200").all();
+  const data = await env.DB.prepare("SELECT i.id,i.app_id,i.label,i.platform,i.version,i.state,i.requested_at,i.decided_at,i.approved_until,i.telemetry_consent,i.last_seen_at,i.invite_id,t.tester_name AS intended_tester,t.tester_email AS intended_email FROM installations AS i LEFT JOIN tester_invites AS t ON i.invite_id=t.id ORDER BY CASE WHEN i.state='pending' THEN 0 ELSE 1 END,i.requested_at DESC LIMIT 200").all();
   return response({requests:(data.results ?? []).map(row=>({...row,state:effectiveState(row)}))});
 }
 async function adminDecision(req,env,id) {
@@ -144,6 +166,13 @@ async function publicDownload(req,env) {
 async function download(env) {
   const release = await githubRelease(env);
   if (!release) return fail("No approved gated installer available",503);
+  return Response.redirect(release.download,302);
+}
+async function privateInviteDownload(env,token) {
+  const inv=await verifyEnrollmentInvite(env,token,"");
+  if(!inv || inv.claimed_installation_id)return fail("Invitation expired, revoked or already used",403);
+  const release=await githubRelease(env);
+  if(!release)return fail("No approved gated installer available",503);
   return Response.redirect(release.download,302);
 }
 async function githubAPI(env,path,opts={}) {
@@ -233,18 +262,26 @@ export default {
    try {
     const url = new URL(req.url), path = url.pathname.replace(/\/+$/,"") || "/";
     if (path==="/") return Response.redirect(publicOrigin(req,env)+"/admin/",302);
-    if (req.method==="GET" && path==="/d/wemuldroid") return publicDownload(req,env);
-    if (req.method==="GET" && path==="/download/wemuldroid") return download(env);
+    // Public legacy download paths must not bypass targeted invitation links.
+    if (req.method==="GET" && path==="/d/wemuldroid" && env.PUBLIC_TESTERS_ENABLED!=="true") return publicDownload(req,env);
+    if (req.method==="GET" && path==="/download/wemuldroid" && env.PUBLIC_TESTERS_ENABLED!=="true") return download(env);
+    if (req.method==="GET" && (path==="/d/wemuldroid"||path==="/download/wemuldroid"))
+      return fail("Use your private tester invitation link",403);
+    if (req.method==="GET" && path.startsWith("/download/invite/"))
+      return privateInviteDownload(env,path.slice("/download/invite/".length));
     if (req.method==="GET" && path==="/qr/wemuldroid.svg") {
+      if(env.PUBLIC_TESTERS_ENABLED==="true")return fail("Private invitation QR only",403);
       const svg=await QRCode.toString(publicOrigin(req,env)+"/d/wemuldroid",{type:"svg",errorCorrectionLevel:"M",margin:3});
       return new Response(svg,{headers:{"content-type":"image/svg+xml","cache-control":"public,max-age=300","x-content-type-options":"nosniff"}});
     }
     if (path==="/api/catalog" && req.method==="GET") {
       const release=await githubRelease(env);
-      return response({app_id:APP,release:release?{tag:release.tag,download:release.download}:null,
-        available:!!release,share_url:release?publicOrigin(req,env)+"/d/wemuldroid":null,
-        message:release?null:"Inviti disattivati: manca una beta con attivazione autorizzata."});
+      // A gated release alone never makes a shared, unrestricted QR/link valid.
+      return response({app_id:APP,release:release?{tag:release.tag}:null,
+        available:false,share_url:null,
+        message:release?"Distribuzione con inviti privati: crea un link per il singolo tester.":"Inviti disattivati: manca una beta con attivazione autorizzata."});
     }
+    if (req.method==="GET"&&path.startsWith("/i/"))return getInviteLanding(req,env,path.slice(3));
     if (path==="/api/v1/enroll" && req.method==="POST") return enroll(req,env,ctx);
     if (path==="/api/v1/status" && req.method==="GET") return status(req,env,url);
     if (path==="/api/v1/telemetry" && req.method==="POST") return telemetry(req,env);
@@ -253,6 +290,10 @@ export default {
     if (path.startsWith("/api/admin/")) {
       if (!await adminAllowed(req,env)) return fail("Administrator credentials required",401);
       if (path.startsWith("/api/admin/push/")) return handleAdminPush(req,env,path);
+      if (path==="/api/admin/invites"&&req.method==="GET")return listInvites(env);
+      if (path==="/api/admin/invites"&&req.method==="POST")return createInvite(req,env);
+      const inviteRoute=/^\/api\/admin\/invites\/([a-f0-9-]+)\/revoke$/i.exec(path);
+      if(inviteRoute&&req.method==="POST")return revokeInvite(req,env,inviteRoute[1]);
       if (path==="/api/admin/requests" && req.method==="GET") return adminRequests(env);
       const match=/^\/api\/admin\/requests\/([a-f0-9-]+)\/decision$/i.exec(path);
       if (match && req.method==="POST") return adminDecision(req,env,match[1]);

@@ -28,8 +28,8 @@ function db() {
     },
     async run(){
      if(query.startsWith("INSERT INTO installations")) {
-       const [id,app_id,secret_sha256,label,platform,version,requested_at,telemetry_consent,last_seen_at]=args;
-       rows.set(id,{id,app_id,secret_sha256,label,platform,version,requested_at,telemetry_consent,last_seen_at,state:"pending",approved_until:null,decided_at:null});
+       const [id,app_id,secret_sha256,label,platform,version,requested_at,telemetry_consent,last_seen_at,invite_id]=args;
+       rows.set(id,{id,app_id,secret_sha256,label,platform,version,requested_at,telemetry_consent,last_seen_at,invite_id,state:"pending",approved_until:null,decided_at:null});
      }else if(query.startsWith("UPDATE installations SET state='pending'")) {
        const r=rows.get(args[5]);
        Object.assign(r,{state:"pending",approved_until:null,decided_at:null,requested_at:args[0],label:args[1],version:args[2],telemetry_consent:args[3],last_seen_at:args[4]});
@@ -46,7 +46,7 @@ function db() {
      return {success:true};
     },
     async all(){
-     if(query.startsWith("SELECT id,app_id,label"))return {results:[...rows.values()].map(({secret_sha256,...r})=>r)};
+     if(query.includes("FROM installations AS i LEFT JOIN tester_invites"))return {results:[...rows.values()].map(({secret_sha256,...r})=>r)};
      throw new Error("Unexpected .all SQL: "+query);
     }
    };
@@ -68,7 +68,7 @@ const send=async(env,path,body,headers={})=>worker.fetch(request(path,"POST",bod
 
 test("full approval lifecycle, expiry, revocation and opt-in telemetry",async()=>{
  const DB=db(), env={DB,ADMIN_TOKEN:adminKey,PUBLIC_TESTERS_ENABLED:"true"};
- let r=await send(env,"/api/v1/enroll",enrollBody());
+ let r=await send(env,"/api/v1/enroll",enrollBody(),{"Authorization":"Bearer "+adminKey});
  assert.equal(r.status,200);
  assert.equal((await r.json()).state,"pending");
  assert.equal(DB.rows.get(id).secret_sha256,sha(key));
@@ -92,7 +92,7 @@ test("full approval lifecycle, expiry, revocation and opt-in telemetry",async()=
  r=await send(env,"/api/v1/telemetry",{...e,event_id:session},{"X-Device-Key":key});
  assert.equal(r.status,403);
  // A revoked device can request fresh approval, never auto-authorizes itself.
- r=await send(env,"/api/v1/enroll",enrollBody());
+ r=await send(env,"/api/v1/enroll",enrollBody(),{"Authorization":"Bearer "+adminKey});
  assert.equal((await r.json()).state,"pending");
  r=await status(env);assert.equal((await r.json()).state,"pending");
  assert.equal(DB.rows.get(id).state,"pending");
@@ -100,7 +100,7 @@ test("full approval lifecycle, expiry, revocation and opt-in telemetry",async()=
 
 test("admin secret, duration and device-secret boundaries",async()=>{
  const DB=db(),env={DB,ADMIN_TOKEN:adminKey,PUBLIC_TESTERS_ENABLED:"true"};
- let r=await send(env,"/api/v1/enroll",enrollBody(false));assert.equal(r.status,200);
+ let r=await send(env,"/api/v1/enroll",enrollBody(false),{"Authorization":"Bearer "+adminKey});assert.equal(r.status,200);
  r=await send(env,"/api/admin/requests/"+id+"/decision",{action:"approve",duration_days:0},{"Authorization":"Bearer "+adminKey});
  assert.equal(r.status,400);
  r=await send(env,"/api/admin/requests/"+id+"/decision",{action:"approve",duration_days:365},{"Authorization":"Bearer "+"A".repeat(63)});
