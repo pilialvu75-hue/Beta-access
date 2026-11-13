@@ -43,6 +43,7 @@
 <div id="newInvite" class="hidden">
 <label for="createdInviteLink">Link monouso (copialo adesso, non sarà mostrato dopo)</label>
 <input id="createdInviteLink" readonly>
+<img id="inviteQr" class="hidden" alt="QR personale per il tester" style="display:block;width:176px;height:176px;background:#fff;padding:8px;margin:12px auto;border-radius:12px">
 <div class="row"><button id="copyInvite">Copia link</button><button id="emailInvite" class="secondary">Prepara email</button></div>
 </div>
 <div id="inviteList"></div>
@@ -395,11 +396,15 @@ $("createInvite").onclick=async()=>{
  if(!payload.tester_name||!$("inviteEmail").checkValidity())return inviteMessage("Inserisci nome e indirizzo email valido.");
  $("createInvite").disabled=true;
  $("newInvite").classList.add("hidden");
+ $("inviteQr").classList.add("hidden");$("inviteQr").removeAttribute("src");
  lastInvite=null;$("createdInviteLink").value="";
  try{
   const created=await api("/api/admin/invites",{method:"POST",body:JSON.stringify(payload)});
   lastInvite=created;
   $("createdInviteLink").value=created.invite_url;
+  const inviteToken=created.invite_url.split("/i/").pop();
+  $("inviteQr").src="/qr/invite/"+encodeURIComponent(inviteToken)+".svg";
+  $("inviteQr").classList.remove("hidden");
   $("newInvite").classList.remove("hidden");
   inviteMessage("Invito creato. Email NON verificata; il link non concede accesso senza approvazione. Il download è ancora disabilitato.");
   await refreshInvites();
@@ -522,7 +527,7 @@ $("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";a
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;$("createdInviteLink").value="";$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;$("createdInviteLink").value="";$("inviteQr").classList.add("hidden");$("inviteQr").removeAttribute("src");$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);

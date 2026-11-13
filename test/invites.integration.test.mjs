@@ -125,6 +125,11 @@ test("private invitations are admin-authenticated, unverified recipient and one-
  const landing=await resp.text();
  assert.match(landing,/Download tester ancora disattivati/);
  assert.equal(landing.includes("tester@example.org"),false,"Do not expose intended email in public invitation page");
+ resp=await worker.fetch(request("/qr/invite/"+token+".svg"),e,{});
+ assert.equal(resp.status,200);
+ assert.equal(resp.headers.get("cache-control"),"no-store");
+ assert.match(resp.headers.get("content-type"),/image\/svg\+xml/);
+ assert.match(await resp.text(),/<svg/);
  resp=await worker.fetch(request("/api/v1/enroll","POST",enroll("invalid")),e,{});
  assert.equal(resp.status,403);
  resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token)),e,{});
@@ -132,6 +137,9 @@ test("private invitations are admin-authenticated, unverified recipient and one-
  assert.equal((await resp.json()).state,"pending");
  assert.equal(e.DB.installs.get(userId).invite_id,invite.id);
  assert.equal(e.DB.invites.get(invite.id).claimed_installation_id,userId);
+ // A redeemed QR is no longer available for forwarding to a new tester.
+ resp=await worker.fetch(request("/qr/invite/"+token+".svg"),e,{});
+ assert.equal(resp.status,404);
  // Same invite token cannot authorize another installation (even though IDs are valid).
  resp=await worker.fetch(request("/api/v1/enroll","POST",enroll(token,otherId)),e,{});
  assert.equal(resp.status,403);

@@ -269,6 +269,18 @@ export default {
       return fail("Use your private tester invitation link",403);
     if (req.method==="GET" && path.startsWith("/download/invite/"))
       return privateInviteDownload(env,path.slice("/download/invite/".length));
+    if (req.method==="GET" && path.startsWith("/qr/invite/") && path.endsWith(".svg")) {
+      const code=path.slice("/qr/invite/".length,-4);
+      const invitation=await verifyEnrollmentInvite(env,code,"");
+      if(!invitation||invitation.claimed_installation_id)return notFound();
+      const svg=await QRCode.toString(publicOrigin(req,env)+"/i/"+code,{
+        type:"svg",errorCorrectionLevel:"M",margin:3
+      });
+      return new Response(svg,{headers:{
+        "content-type":"image/svg+xml","cache-control":"no-store",
+        "x-content-type-options":"nosniff","referrer-policy":"no-referrer"
+      }});
+    }
     if (req.method==="GET" && path==="/qr/wemuldroid.svg") {
       if(env.PUBLIC_TESTERS_ENABLED==="true")return fail("Private invitation QR only",403);
       const svg=await QRCode.toString(publicOrigin(req,env)+"/d/wemuldroid",{type:"svg",errorCorrectionLevel:"M",margin:3});
