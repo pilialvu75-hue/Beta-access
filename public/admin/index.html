@@ -3,7 +3,7 @@
 <meta name="theme-color" content="#101624"><link rel="manifest" href="/manifest.webmanifest">
 <title>AIVEXUS Beta Access</title>
 <style>
-:root{color-scheme:dark}*{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:#101624;color:#f6f8ff;margin:0;padding:18px}main{max-width:680px;margin:auto}h1{font-size:1.45rem;margin:4px 0}h2{font-size:1.05rem;margin:0 0 12px}p,small{color:#b8c3d7}section{background:#1b2539;border:1px solid #324262;border-radius:18px;padding:16px;margin-top:15px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button,input,select{font:inherit;border-radius:10px;padding:10px 12px;border:1px solid #516381;background:#152037;color:#f6f8ff}button{background:#2769da;border:0;cursor:pointer}button.secondary{background:#364761}button.danger{background:#91414b}input{width:100%}label{display:block;font-size:.9rem;margin:8px 0 3px;color:#cbd6ed}#qr{display:block;width:176px;height:176px;background:#fff;padding:8px;margin:12px auto;border-radius:12px}.card{border-top:1px solid #3b4d6b;padding:13px 0}.card:first-child{border:0}.badge{display:inline-block;border-radius:10px;background:#425677;padding:3px 9px;font-size:.78rem}.pill{background:#5a431e}.label{font-weight:700}.hint{font-size:.82rem}.hidden{display:none!important}a{color:#95c8ff}#notice{min-height:1.3em}
+:root{color-scheme:dark}*{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:#101624;color:#f6f8ff;margin:0;padding:18px}main{max-width:680px;margin:auto}h1{font-size:1.45rem;margin:4px 0}h2{font-size:1.05rem;margin:0 0 12px}p,small{color:#b8c3d7}#pilotStatus{white-space:pre-line}section{background:#1b2539;border:1px solid #324262;border-radius:18px;padding:16px;margin-top:15px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}button,input,select{font:inherit;border-radius:10px;padding:10px 12px;border:1px solid #516381;background:#152037;color:#f6f8ff}button{background:#2769da;border:0;cursor:pointer}button.secondary{background:#364761}button.danger{background:#91414b}input{width:100%}label{display:block;font-size:.9rem;margin:8px 0 3px;color:#cbd6ed}#qr{display:block;width:176px;height:176px;background:#fff;padding:8px;margin:12px auto;border-radius:12px}.card{border-top:1px solid #3b4d6b;padding:13px 0}.card:first-child{border:0}.badge{display:inline-block;border-radius:10px;background:#425677;padding:3px 9px;font-size:.78rem}.pill{background:#5a431e}.label{font-weight:700}.hint{font-size:.82rem}.hidden{display:none!important}a{color:#95c8ff}#notice{min-height:1.3em}
 </style></head>
 <body><main>
 <header><h1>🔐 AIVEXUS Beta Access</h1><small>Gestione privata da Android · WEmulDroid</small></header>
@@ -47,6 +47,11 @@
 <div class="row"><button id="copyInvite">Copia link</button><button id="emailInvite" class="secondary">Prepara email</button></div>
 </div>
 <div id="inviteList"></div>
+<details id="pilotReadiness"><summary>Preparazione del primo tester — controllo server</summary>
+<p class="hint">Verifica configurazione e notifiche, non l'installazione Windows reale. Non avvia un deploy e non abilita tester.</p>
+<button type="button" id="checkPilot">Verifica preparazione weekend</button>
+<p id="pilotStatus" class="hint" role="status"></p>
+</details>
 </section>
 <section id="phoneManagement" class="hidden"><h2>Telefoni amministratori</h2>
 <p class="hint">Quando cambi telefono, autorizza la registrazione dal dispositivo che possiedi già. Mantieni entrambi finché il nuovo non funziona.</p>
@@ -388,6 +393,30 @@ async function refreshInvites(){
   }
  }catch(e){inviteMessage(e?.message||"Impossibile caricare gli inviti.");}
 }
+$("checkPilot").onclick=async()=>{
+ $("checkPilot").disabled=true;
+ $("pilotStatus").textContent="Verifica in corso…";
+ try{
+  const x=await api("/api/admin/pilot/readiness");
+  const lines=[
+    "Database inviti: "+(x.private_invites_schema_ready?"OK":"DA AGGIORNARE"),
+    "Passkey amministratore: "+(x.admin_passkeys_schema_ready?"schema OK":"schema mancante"),
+    "Notifiche: "+(x.web_push_configured?"configurate":"configurazione mancante")+
+      " · dispositivi registrati: "+x.push_subscriptions,
+    "Diagnostics: "+(x.diagnostics_configured?"credenziale presente":"credenziale MANCANTE"),
+    "Download pubblici: "+(x.public_download_enabled?"ATTIVI — NON IDONEO AL PILOTA PRIVATO":"disattivati"),
+    "Modalità privata: "+(x.private_pilot_enabled?"attiva":"disattivata"),
+    "Controlli infrastruttura: "+(x.infrastructure_checks_pass?"PASS":"NON COMPLETI"),
+    "Collaudo Windows 11 reale: ancora da verificare",
+    "Questo controllo non invia inviti né installa software."
+  ];
+  $("pilotStatus").textContent=lines.join("\n");
+ }catch(e){
+  $("pilotStatus").textContent="Controllo non disponibile: "+(e?.message||"errore")+
+   ". Potrebbe essere necessario aggiornare il Worker dal workflow GitHub, lasciando il download pubblico disattivato.";
+ }finally{$("checkPilot").disabled=false;}
+};
+
 $("refreshInvites").onclick=refreshInvites;
 $("createInvite").onclick=async()=>{
  if(!(token||passkeyLoggedIn))return inviteMessage("Accedi come amministratore.");
