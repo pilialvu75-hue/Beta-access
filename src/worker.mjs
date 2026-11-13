@@ -160,6 +160,13 @@ async function download(env) {
   if (!release) return fail("No approved gated installer available",503);
   return Response.redirect(release.download,302);
 }
+async function privateInviteDownload(env,token) {
+  const inv=await verifyEnrollmentInvite(env,token,"");
+  if(!inv || inv.claimed_installation_id)return fail("Invitation expired, revoked or already used",403);
+  const release=await githubRelease(env);
+  if(!release)return fail("No approved gated installer available",503);
+  return Response.redirect(release.download,302);
+}
 async function githubAPI(env,path,opts={}) {
   const res = await fetch("https://api.github.com/repos/"+DIAGNOSTICS_REPO+path,{
     ...opts, headers:{
@@ -247,17 +254,24 @@ export default {
    try {
     const url = new URL(req.url), path = url.pathname.replace(/\/+$/,"") || "/";
     if (path==="/") return Response.redirect(publicOrigin(req,env)+"/admin/",302);
-    if (req.method==="GET" && path==="/d/wemuldroid") return publicDownload(req,env);
-    if (req.method==="GET" && path==="/download/wemuldroid") return download(env);
+    // Public legacy download paths must not bypass targeted invitation links.
+    if (req.method==="GET" && path==="/d/wemuldroid" && env.PUBLIC_TESTERS_ENABLED!=="true") return publicDownload(req,env);
+    if (req.method==="GET" && path==="/download/wemuldroid" && env.PUBLIC_TESTERS_ENABLED!=="true") return download(env);
+    if (req.method==="GET" && (path==="/d/wemuldroid"||path==="/download/wemuldroid"))
+      return fail("Use your private tester invitation link",403);
+    if (req.method==="GET" && path.startsWith("/download/invite/"))
+      return privateInviteDownload(env,path.slice("/download/invite/".length));
     if (req.method==="GET" && path==="/qr/wemuldroid.svg") {
+      if(env.PUBLIC_TESTERS_ENABLED==="true")return fail("Private invitation QR only",403);
       const svg=await QRCode.toString(publicOrigin(req,env)+"/d/wemuldroid",{type:"svg",errorCorrectionLevel:"M",margin:3});
       return new Response(svg,{headers:{"content-type":"image/svg+xml","cache-control":"public,max-age=300","x-content-type-options":"nosniff"}});
     }
     if (path==="/api/catalog" && req.method==="GET") {
       const release=await githubRelease(env);
-      return response({app_id:APP,release:release?{tag:release.tag,download:release.download}:null,
-        available:!!release,share_url:release?publicOrigin(req,env)+"/d/wemuldroid":null,
-        message:release?null:"Inviti disattivati: manca una beta con attivazione autorizzata."});
+      // A gated release alone never makes a shared, unrestricted QR/link valid.
+      return response({app_id:APP,release:release?{tag:release.tag}:null,
+        available:false,share_url:null,
+        message:release?"Distribuzione con inviti privati: crea un link per il singolo tester.":"Inviti disattivati: manca una beta con attivazione autorizzata."});
     }
     if (req.method==="GET"&&path.startsWith("/i/"))return getInviteLanding(req,env,path.slice(3));
     if (path==="/api/v1/enroll" && req.method==="POST") return enroll(req,env,ctx);
