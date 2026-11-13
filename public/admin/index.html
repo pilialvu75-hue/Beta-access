@@ -98,8 +98,29 @@ $("email").onclick=()=>{if(!$("link").value){notify("Inviti non disponibili");re
  location.href="mailto:"+addr+"?subject="+subject+"&body="+body;
 };
 async function decide(id,action,days) {
- try {await api("/api/admin/requests/"+encodeURIComponent(id)+"/decision",{method:"POST",body:JSON.stringify({action,duration_days:days})});
- notify("Decisione registrata");await refresh();
+ const request=knownRequests.find(x=>x.id===id);
+ if(!request){notify("Richiesta non più presente: aggiorna il pannello.");return;}
+ const app=readableApp(request.app_id);
+ const claimed=request.label||"Senza nome";
+ const label=action==="approve"?"AUTORIZZARE":action==="deny"?"RIFIUTARE":"REVOCARE";
+ const detail=action==="approve"?" per "+days+" giorni":"";
+ const confirmation=[
+  label+" "+app+detail+"?",
+  "",
+  "Tester dichiarato: "+claimed+" (IDENTITÀ NON VERIFICATA)",
+  "Sistema: "+(request.platform||"sconosciuto"),
+  "Versione: "+(request.version||"sconosciuta"),
+  "ID installazione: "+id,
+  "",
+  "Conferma solo se riconosci questa richiesta."
+ ].join("\n");
+ if(!window.confirm(confirmation))return;
+ try {
+  await api("/api/admin/requests/"+encodeURIComponent(id)+"/decision",{
+   method:"POST",body:JSON.stringify({action,duration_days:days})
+  });
+  notify("Decisione registrata su "+app+" — "+claimed);
+  await refresh();
  } catch(e){notify(e.message);}
 }
 const appNames={wemuldroid:"WEmulDroid"};
