@@ -9,6 +9,8 @@ compatibility_flags = ["nodejs_compat"]
 APP_REPO = "pilialvu75-hue/WEmulDroid"
 # No public links to historical ungated beta installers.
 PUBLIC_TESTERS_ENABLED = "false"
+# Invite-only pilot, independent of public installer distribution.
+PRIVATE_PILOT_ENROLLMENT_ENABLED = "false"
 APPROVED_BETA_TAG = ""
 
 [assets]

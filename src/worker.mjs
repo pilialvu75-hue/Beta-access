@@ -52,12 +52,15 @@ async function enroll(req,env,ctx) {
   // When enabled, every public enrollment requires a private app-specific invitation.
   const administrator=await adminAllowed(req,env);
   const publicEnrollment=env.PUBLIC_TESTERS_ENABLED==="true";
-  if(!publicEnrollment&&!administrator)return fail("Tester enrollment is not enabled",403);
+  // A deliberate private pilot can enroll a device with an owner-issued token
+  // without exposing a public installer, QR or general tester registration.
+  const privatePilot=env.PRIVATE_PILOT_ENROLLMENT_ENABLED==="true";
+  if(!publicEnrollment&&!privatePilot&&!administrator)return fail("Tester enrollment is not enabled",403);
   const body=await readJson(req);
   if(!validEnrollment(body))return fail("Invalid enrollment");
   const id=body.installation_id.toLowerCase();
   const secretHash=await sha256hex(body.device_secret.toLowerCase());
-  const inviteRequired=publicEnrollment&&!administrator;
+  const inviteRequired=(publicEnrollment||privatePilot)&&!administrator;
   const invite=inviteRequired?await verifyEnrollmentInvite(env,body.invite_token,id):null;
   if(inviteRequired&&!invite)return fail("Valid private invitation required",403);
   const exists=await env.DB.prepare("SELECT * FROM installations WHERE id=?").bind(id).first();
