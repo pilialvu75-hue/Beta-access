@@ -164,6 +164,12 @@ function renderRequests(){
   if(r.invite_id){
    intended.textContent="Invito previsto per: "+(r.intended_tester||"sconosciuto")+
     " · "+(r.intended_email||"email sconosciuta")+" (email NON verificata)";
+   if(r.intended_tester && r.label &&
+      r.intended_tester.trim().toLocaleLowerCase("it-IT")!==r.label.trim().toLocaleLowerCase("it-IT")){
+    const warning=document.createElement("p");warning.className="hint";
+    warning.textContent="ATTENZIONE: il nome dichiarato dall'installazione è diverso da quello dell'invito.";
+    intended.append(warning);
+   }
   }
   const detail=document.createElement("p");detail.className="hint";
   detail.textContent="Versione: "+(r.version||"sconosciuta")+
