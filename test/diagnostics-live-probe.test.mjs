@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {verifySyntheticArchive} from "../scripts/diagnostics-live-probe.mjs";
+import {PROBE_LABEL,verifySyntheticArchive} from "../scripts/diagnostics-live-probe.mjs";
+import {validEnrollment} from "../src/core.mjs";
 
 const installationId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const sessionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -13,6 +14,12 @@ const sample={
  event:"APP_START",severity:"info",fields:{startup_ms:123}
 };
 const raw=x=>JSON.stringify(x)+"\n";
+
+test("live probe enrollment meets the actual server validation contract",()=>{
+ assert.equal(validEnrollment({app_id:"wemuldroid",installation_id:installationId,
+  device_secret:"a".repeat(64),platform:"windows",version:"0.0.0-smoke",
+  label:PROBE_LABEL,telemetry_consent:true}),true);
+});
 
 test("manual Diagnostics read-back validates one real sanitized event",()=>{
  assert.equal(verifySyntheticArchive(raw(sample),{installationId,sessionId}),true);
