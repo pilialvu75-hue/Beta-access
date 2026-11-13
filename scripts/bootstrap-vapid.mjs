@@ -8,8 +8,14 @@ if(list.status!==0)throw Error("Cannot list existing Worker secrets");
 let existing;
 try{existing=JSON.parse(list.stdout);}catch(_){throw Error("Cannot safely parse existing Worker secrets");}
 if(!Array.isArray(existing))throw Error("Unknown Worker secret list format");
-if(existing.some(x=>["VAPID_PUBLIC_KEY","VAPID_PRIVATE_KEY","VAPID_SUBJECT"].includes(x.name)))
- throw Error("VAPID credentials already exist: refusing to rotate existing subscriptions");
+const required=["VAPID_PUBLIC_KEY","VAPID_PRIVATE_KEY","VAPID_SUBJECT"];
+const present=new Set(existing.map(x=>x.name).filter(n=>required.includes(n)));
+if(present.size===required.length) {
+ console.log("Android Web Push already configured. Reusing existing VAPID keys without rotation.");
+ process.exit(0);
+}
+if(present.size>0)
+ throw Error("Partial VAPID credentials found; refusing to rotate or overwrite existing device subscriptions");
 const pair=generateKeyPairSync("ec",{namedCurve:"prime256v1"});
 const jwk=pair.privateKey.export({format:"jwk"});
 const publicKey=Buffer.concat([Buffer.from([4]),Buffer.from(jwk.x,"base64url"),Buffer.from(jwk.y,"base64url")]).toString("base64url");

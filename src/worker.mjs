@@ -107,7 +107,7 @@ async function telemetry(req,env) {
   return response({accepted:true});
 }
 async function adminRequests(env) {
-  const data = await env.DB.prepare("SELECT id,app_id,label,platform,version,state,requested_at,decided_at,approved_until,telemetry_consent,last_seen_at FROM installations ORDER BY requested_at DESC LIMIT 200").all();
+  const data = await env.DB.prepare("SELECT id,app_id,label,platform,version,state,requested_at,decided_at,approved_until,telemetry_consent,last_seen_at FROM installations ORDER BY CASE WHEN state='pending' THEN 0 ELSE 1 END,requested_at DESC LIMIT 200").all();
   return response({requests:(data.results ?? []).map(row=>({...row,state:effectiveState(row)}))});
 }
 async function adminDecision(req,env,id) {
