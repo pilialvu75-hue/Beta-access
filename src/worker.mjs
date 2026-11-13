@@ -131,6 +131,44 @@ async function telemetry(req,env) {
     .bind(body.event_id,row.id,JSON.stringify(event),iso()).run();
   return response({accepted:true});
 }
+async function adminPilotReadiness(env) {
+  // Only for an authenticated owner; never return actual token/endpoint values.
+  const reports={};
+  const checks=[
+    ["private_invites_schema","SELECT COUNT(*) AS n FROM tester_invites"],
+    ["admin_passkeys_schema","SELECT COUNT(*) AS n FROM admin_passkeys"],
+    ["push_subscriptions_schema","SELECT COUNT(*) AS n FROM admin_push_subscriptions"],
+    ["telemetry_schema","SELECT COUNT(*) AS n FROM telemetry_outbox"]
+  ];
+  for(const [key,sql] of checks){
+    try {
+      const row=await env.DB.prepare(sql).first();
+      reports[key]={available:true,count:Number(row?.n||0)};
+    }catch(_){reports[key]={available:false,count:0};}
+  }
+  const publicSharing=env.PUBLIC_TESTERS_ENABLED==="true";
+  const privatePilot=env.PRIVATE_PILOT_ENROLLMENT_ENABLED==="true";
+  const pushConfigured=!!(env.VAPID_PUBLIC_KEY&&env.VAPID_PRIVATE_KEY&&env.VAPID_SUBJECT);
+  const diagnosticsConfigured=!!env.DIAGNOSTICS_GITHUB_TOKEN;
+  const prerequisites=reports.private_invites_schema.available &&
+    reports.admin_passkeys_schema.available && reports.push_subscriptions_schema.available &&
+    reports.telemetry_schema.available && pushConfigured && diagnosticsConfigured &&
+    reports.push_subscriptions_schema.count>0&&!publicSharing;
+  return response({
+    public_download_enabled:publicSharing,
+    private_pilot_enabled:privatePilot,
+    diagnostics_configured:diagnosticsConfigured,
+    web_push_configured:pushConfigured,
+    push_subscriptions:reports.push_subscriptions_schema.count,
+    private_invites_schema_ready:reports.private_invites_schema.available,
+    admin_passkeys_schema_ready:reports.admin_passkeys_schema.available,
+    telemetry_schema_ready:reports.telemetry_schema.available,
+    infrastructure_checks_pass:prerequisites,
+    can_accept_private_invites:prerequisites&&privatePilot,
+    windows_real_test_verified:false,
+    explanation:"Controllo server e notifiche soltanto: installazione Windows, firma e Diagnostics end-to-end richiedono una prova reale."
+  });
+}
 async function adminRequests(env) {
   const data = await env.DB.prepare("SELECT i.id,i.app_id,i.label,i.platform,i.version,i.state,i.requested_at,i.decided_at,i.approved_until,i.telemetry_consent,i.last_seen_at,i.invite_id,t.tester_name AS intended_tester,t.tester_email AS intended_email FROM installations AS i LEFT JOIN tester_invites AS t ON i.invite_id=t.id ORDER BY CASE WHEN i.state='pending' THEN 0 ELSE 1 END,i.requested_at DESC LIMIT 200").all();
   return response({requests:(data.results ?? []).map(row=>({...row,state:effectiveState(row)}))});
@@ -304,6 +342,7 @@ export default {
       return handlePasskey(req,env,path,()=>adminAllowed(req,env));
     if (path.startsWith("/api/admin/")) {
       if (!await adminAllowed(req,env)) return fail("Administrator credentials required",401);
+      if (path==="/api/admin/pilot/readiness" && req.method==="GET")return adminPilotReadiness(env);
       if (path.startsWith("/api/admin/push/")) return handleAdminPush(req,env,path);
       if (path==="/api/admin/invites"&&req.method==="GET")return listInvites(env);
       if (path==="/api/admin/invites"&&req.method==="POST")return createInvite(req,env);
