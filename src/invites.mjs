@@ -91,7 +91,7 @@ export async function getInviteLanding(req,env,token){
  const releaseReady=env.PUBLIC_TESTERS_ENABLED==="true"&&/^v\d+\.\d+\.\d+-beta\.\d+$/.test(env.APPROVED_BETA_TAG||"");
  // Never treat a token as proof of an email address; email verification is future work.
  const status=releaseReady?
- '<p><a href="/d/wemuldroid">Apri pagina download WEmulDroid</a>. La versione deve contenere il gate Beta Access.</p>':
+ '<p><a href="/download/invite/'+token+'">Scarica la beta privata WEmulDroid</a>. La versione deve contenere il gate Beta Access.</p>':
  '<p>Download tester ancora disattivati: nessuna beta protetta è stata autorizzata per la distribuzione.</p>';
  return htmlPage("Invito WEmulDroid",'<p>Invito individuale per una installazione Windows, valido fino al '+record.expires_at.slice(0,10)+'.</p>'+status+'<p>Codice da inserire nella finestra di attivazione WEmulDroid:</p><p><code>'+token+'</code></p><p>Conserva il codice e non condividerlo. Anche dopo la richiesta, serve l’approvazione dell’amministratore.</p>');
 }
