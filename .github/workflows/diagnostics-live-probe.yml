@@ -1,0 +1,52 @@
+name: Verify real Diagnostics relay (manual synthetic event)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize_public_synthetic_event:
+        description: 'I authorize ONE synthetic, non-personal event to appear in the public Diagnostics GitHub repo'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+concurrency:
+  group: beta-access-diagnostics-real-probe
+  cancel-in-progress: false
+jobs:
+  diagnostics-live-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    env:
+      BETA_ADMIN_TOKEN: ${{ secrets.BETA_ADMIN_TOKEN }}
+      DIAGNOSTICS_GITHUB_TOKEN: ${{ secrets.DIAGNOSTICS_GITHUB_TOKEN }}
+    steps:
+      - name: Refuse unapproved or off-main publication
+        env:
+          AUTHORIZE: ${{ inputs.authorize_public_synthetic_event }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Run the approved code from main only"; exit 1
+          fi
+          if [[ "$AUTHORIZE" != "true" ]]; then
+            echo "::error::Explicit owner checkbox required before publishing one synthetic event"; exit 1
+          fi
+          if [[ -z "$BETA_ADMIN_TOKEN" || -z "$DIAGNOSTICS_GITHUB_TOKEN" ]]; then
+            echo "::error::Missing protected repository secrets"; exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check production probe script syntax
+        run: node --check scripts/diagnostics-live-probe.mjs
+      - name: Owner-approved synthetic Diagnostics -> GitHub -> read-back test
+        run: node scripts/diagnostics-live-probe.mjs
+      - name: Inform owner about evidence retention
+        if: always()
+        run: |
+          echo "Synthetic test only. Public downloads and private pilot remain disabled." >> "$GITHUB_STEP_SUMMARY"
+          echo "A successful probe leaves one privacy-filtered synthetic Diagnostics release as public evidence." >> "$GITHUB_STEP_SUMMARY"
+          echo "Real Windows 11 tester diagnostics must still be validated separately with consent." >> "$GITHUB_STEP_SUMMARY"
