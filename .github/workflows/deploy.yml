@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: false
+      enable_private_pilot:
+        description: 'INVITE ONLY: allow one privately invited tester to request approval, with public downloads still OFF'
+        type: boolean
+        required: false
+        default: false
       enable_tester_download:
         description: 'Enable sharing only AFTER approved gated WEmulDroid release and physical tests'
         type: boolean
@@ -41,6 +46,7 @@ jobs:
       BETA_ADMIN_TOKEN: ${{ secrets.BETA_ADMIN_TOKEN }}
       DIAGNOSTICS_GITHUB_TOKEN: ${{ secrets.DIAGNOSTICS_GITHUB_TOKEN }}
       ENABLE_TESTER_DOWNLOAD: ${{ inputs.enable_tester_download }}
+      ENABLE_PRIVATE_PILOT: ${{ inputs.enable_private_pilot }}
       APPROVED_BETA_TAG: ${{ inputs.approved_beta_tag }}
       GATED_BUILD_CONFIRMED: ${{ inputs.gated_build_confirmed }}
     steps:
@@ -62,6 +68,12 @@ jobs:
           fi
           if [[ ${#BETA_ADMIN_TOKEN} -lt 48 ]]; then
             echo "::error::BETA_ADMIN_TOKEN must be 48+ random characters"; exit 1
+          fi
+          if [[ "$ENABLE_PRIVATE_PILOT" == "true" && "$ENABLE_TESTER_DOWNLOAD" == "true" ]]; then
+            echo "::error::Cannot run invite-only pilot and public sharing simultaneously"; exit 1
+          fi
+          if [[ "$ENABLE_PRIVATE_PILOT" == "true" && -z "$DIAGNOSTICS_GITHUB_TOKEN" ]]; then
+            echo "::error::Diagnostics token required for private pilot"; exit 1
           fi
           if [[ "$ENABLE_TESTER_DOWNLOAD" == "true" && "$GATED_BUILD_CONFIRMED" != "true" ]]; then
             echo "::error::Cannot publish unverified gated installer"; exit 1
