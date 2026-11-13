@@ -69,15 +69,23 @@ async function enroll(req,env,ctx) {
   if(!exists){
     const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM installations WHERE state='pending'").first();
     if((count?.n??0)>=500)return fail("Queue is temporarily full",429);
-    await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at,invite_id) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)")
-      .bind(id,APP,secretHash,body.label,body.platform,body.version,iso(),body.telemetry_consent?1:0,iso(),invite?.id??null).run();
-    if(inviteRequired){
-      // Atomic single-use claim. If someone redeemed the invite concurrently,
-      // remove this unapproved installation rather than leave an orphan request.
-      if(!(await claimEnrollmentInvite(env,invite,id))){
-        await env.DB.prepare("DELETE FROM installations WHERE id=? AND secret_sha256=? AND state='pending'").bind(id,secretHash).run();
-        return fail("Invitation already used by another installation",403);
+    // Claim the invite *before* inserting the device so no unclaimed installation
+    // can briefly appear in the admin queue during concurrent enrollment.
+    if(inviteRequired&&!(await claimEnrollmentInvite(env,invite,id)))
+      return fail("Invitation already used by another installation",403);
+    try{
+      await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at,invite_id) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)")
+        .bind(id,APP,secretHash,body.label,body.platform,body.version,iso(),body.telemetry_consent?1:0,iso(),invite?.id??null).run();
+    }catch(e){
+      if(inviteRequired){
+        // Recover the single-use token if a database insert failed. Restrict
+        // the rollback to this exact invite + installation pair.
+        try{
+          await env.DB.prepare("UPDATE tester_invites SET claimed_installation_id=NULL,claimed_at=NULL WHERE id=? AND claimed_installation_id=?")
+            .bind(invite.id,id).run();
+        }catch(_){ /* Leave the invite unusable rather than loosen authorization. */ }
       }
+      throw e;
     }
     newlyPending=true;
   }else{
