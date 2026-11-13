@@ -69,7 +69,7 @@ async function enroll(req,env,ctx) {
   if(!exists){
     const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM installations WHERE state='pending'").first();
     if((count?.n??0)>=500)return fail("Queue is temporarily full",429);
-    await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at,invite_id) VALUES(?,?,?,?,?,?,'pending',?,?,?,?,?)")
+    await env.DB.prepare("INSERT INTO installations(id,app_id,secret_sha256,label,platform,version,state,requested_at,telemetry_consent,last_seen_at,invite_id) VALUES(?,?,?,?,?,?,'pending',?,?,?,?)")
       .bind(id,APP,secretHash,body.label,body.platform,body.version,iso(),body.telemetry_consent?1:0,iso(),invite?.id??null).run();
     if(inviteRequired){
       // Atomic single-use claim. If someone redeemed the invite concurrently,
