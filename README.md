@@ -18,6 +18,8 @@ Central service for distributing private-test invitations, QR codes, and time-li
 - **Distribution:** generic QR/download and public enrollment remain closed by design; the invite-only pilot has a separate **explicit manual enablement** step. A named invitation alone never authorizes a download or unlock.
 - **Diagnostics:** simulated relay regression tests cover GitHub release/upload/acknowledgement/failure behavior without network access or real data. Real opt-in telemetry publication and read-back remain **PENDING**.
 
+For a real relay test without Windows, use the **separate, explicitly opt-in manual workflow** documented in [Diagnostics real probe](docs/DIAGNOSTICS_REAL_PROBE.md). It can publish one anonymous synthetic event to the public Diagnostics GitHub repository and is never started by CI or deployment.
+
 See [weekend private pilot](docs/WEEKEND_PRIVATE_PILOT.md), [first distribution issue #2](https://github.com/pilialvu75-hue/Beta-access/issues/2), and [private invitations](docs/PRIVATE_TESTER_INVITES.md). Beta Access does **not** ship a native Android APK, signed Windows installer, or automatic email sending. Its Android administrator client is a PWA.
 
 The Windows-only adapter remains in [WEmulDroid PR #8](https://github.com/pilialvu75-hue/WEmulDroid/pull/8); the Diagnostics producer schema was integrated in [Diagnostics PR #3](https://github.com/pilialvu75-hue/Ai-orchestrator-diagnostics/pull/3).
