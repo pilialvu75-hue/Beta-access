@@ -152,9 +152,19 @@ export async function handleVoiceBridgeOta(req,env,{administrator=false,fetcher=
        !versionPattern.test(input?.version||""))return fail("Invalid enrollment");
     const tokenHash=await sha256hex(invite);
     const existing=await env.DB.prepare(
-      "SELECT installation_id FROM voicebridge_ota_devices WHERE installation_id=?"
+      "SELECT installation_id,secret_sha256,state FROM voicebridge_ota_devices WHERE installation_id=?"
     ).bind(id).first();
-    if(existing)return fail("Device already registered",409);
+    if(existing){
+      // Idempotent retry for dropped HTTP response: same key and invite
+      // must be bound to the same installation, never a second device.
+      const registered=await env.DB.prepare(
+        "SELECT claimed_installation_id FROM voicebridge_ota_invites WHERE token_sha256=?"
+      ).bind(tokenHash).first();
+      if(!registered||registered.claimed_installation_id!==id||
+        !constantTimeEqual(existing.secret_sha256,await sha256hex(secret)))
+        return fail("Device already registered with other credentials",409);
+      return answer({state:existing.state,message:"Existing device enrollment"},200);
+    }
     const invited=await env.DB.prepare(
       "UPDATE voicebridge_ota_invites SET claimed_installation_id=? WHERE token_sha256=? AND claimed_installation_id IS NULL AND expires_at>?"
     ).bind(id,tokenHash,now()).run();
