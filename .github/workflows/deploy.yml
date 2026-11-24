@@ -17,6 +17,16 @@ on:
         type: boolean
         required: false
         default: false
+      enable_voicebridge_ota:
+        description: 'Owner opt-in only after private device tests'
+        type: boolean
+        required: false
+        default: false
+      voicebridge_gate_confirmed:
+        description: 'I verified the VoiceBridge device gate'
+        type: boolean
+        required: false
+        default: false
       enable_tester_download:
         description: 'Enable sharing only AFTER approved gated WEmulDroid release and physical tests'
         type: boolean
@@ -49,6 +59,9 @@ jobs:
       ENABLE_PRIVATE_PILOT: ${{ inputs.enable_private_pilot }}
       APPROVED_BETA_TAG: ${{ inputs.approved_beta_tag }}
       GATED_BUILD_CONFIRMED: ${{ inputs.gated_build_confirmed }}
+      ENABLE_VOICEBRIDGE_OTA: ${{ inputs.enable_voicebridge_ota }}
+      VOICEBRIDGE_GATE_CONFIRMED: ${{ inputs.voicebridge_gate_confirmed }}
+      VOICEBRIDGE_RELEASES_TOKEN: ${{ secrets.VOICEBRIDGE_RELEASES_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,6 +81,9 @@ jobs:
           fi
           if [[ ${#BETA_ADMIN_TOKEN} -lt 48 ]]; then
             echo "::error::BETA_ADMIN_TOKEN must be 48+ random characters"; exit 1
+          fi
+          if [[ "$ENABLE_VOICEBRIDGE_OTA" == "true" && ( "$VOICEBRIDGE_GATE_CONFIRMED" != "true" || -z "${VOICEBRIDGE_RELEASES_TOKEN:-}" ) ]]; then
+            echo "::error::VoiceBridge owner gate/secret missing"; exit 1
           fi
           if [[ "$ENABLE_PRIVATE_PILOT" == "true" && "$ENABLE_TESTER_DOWNLOAD" == "true" ]]; then
             echo "::error::Cannot run invite-only pilot and public sharing simultaneously"; exit 1
@@ -106,6 +122,9 @@ jobs:
           printf '%s' "$BETA_ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN
           if [[ -n "${DIAGNOSTICS_GITHUB_TOKEN:-}" ]]; then
             printf '%s' "$DIAGNOSTICS_GITHUB_TOKEN" | npx wrangler secret put DIAGNOSTICS_GITHUB_TOKEN
+          fi
+          if [[ -n "${VOICEBRIDGE_RELEASES_TOKEN:-}" ]]; then
+            printf '%s' "$VOICEBRIDGE_RELEASES_TOKEN" | npx wrangler secret put VOICEBRIDGE_RELEASES_TOKEN
           fi
       - name: Initialize Android Web Push (first-time only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.initialize_web_push == true }}

@@ -3,6 +3,9 @@ import {readFileSync,writeFileSync} from "node:fs";
 const id=process.env.D1_DATABASE_ID||"";
 const enabled=process.env.ENABLE_TESTER_DOWNLOAD==="true";
 const pilot=process.env.ENABLE_PRIVATE_PILOT==="true";
+const voicebridgeOta=process.env.ENABLE_VOICEBRIDGE_OTA==="true";
+if(voicebridgeOta && (process.env.VOICEBRIDGE_GATE_CONFIRMED!=="true" ||
+  !process.env.VOICEBRIDGE_RELEASES_TOKEN))throw Error("VoiceBridge gate/secret missing");
 const tag=(process.env.APPROVED_BETA_TAG||"").trim();
 if(!/^[a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$/.test(id))throw Error("Invalid D1 UUID");
 if(enabled&&!/^v\d+\.\d+\.\d+-beta\.\d+$/.test(tag))throw Error("Approved gated beta tag required");
@@ -15,7 +18,8 @@ for(const [key,oldValue,value] of [
   ["database_id","REPLACE_WITH_REAL_D1_DATABASE_ID",id],
   ["PUBLIC_TESTERS_ENABLED","false",String(enabled)],
   ["PRIVATE_PILOT_ENROLLMENT_ENABLED","false",String(pilot)],
-  ["APPROVED_BETA_TAG","",enabled?tag:""]
+  ["APPROVED_BETA_TAG","",enabled?tag:""],
+  ["VOICEBRIDGE_OTA_ENABLED","false",String(voicebridgeOta)]
 ]){
  const anchor=key+' = "'+oldValue+'"';
  if(!text.includes(anchor))throw Error("Missing config key "+key);

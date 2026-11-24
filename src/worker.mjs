@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import {handleVoiceBridgeOta} from "./voicebridge_ota.mjs";
 import {createInvite,listInvites,revokeInvite,getInviteLanding,verifyEnrollmentInvite,claimEnrollmentInvite} from "./invites.mjs";
 import {handleAdminPush,enqueuePushRequest,deliverPendingPush} from "./push.mjs";
 import {handlePasskey,passkeySessionAllowed} from "./passkeys.mjs";
@@ -327,6 +328,12 @@ export default {
    try {
     const url = new URL(req.url), path = url.pathname.replace(/\/+$/,"") || "/";
     if (path==="/") return Response.redirect(publicOrigin(req,env)+"/admin/",302);
+    // Disabled by default: separate, app-scoped VoiceBridge private OTA.
+    // Never affects WEmulDroid or public tester sharing routes.
+    if (path.startsWith("/api/voicebridge/v1/"))
+      return handleVoiceBridgeOta(req,env);
+    if (path.startsWith("/api/admin/voicebridge/"))
+      return handleVoiceBridgeOta(req,env,{administrator:await adminAllowed(req,env)});
     // Public legacy download paths must not bypass targeted invitation links.
     if (req.method==="GET" && path==="/d/wemuldroid" && env.PUBLIC_TESTERS_ENABLED!=="true") return publicDownload(req,env);
     if (req.method==="GET" && path==="/download/wemuldroid" && env.PUBLIC_TESTERS_ENABLED!=="true") return download(env);

@@ -53,6 +53,15 @@
 <p id="pilotStatus" class="hint" role="status"></p>
 </details>
 </section>
+<section id="voicebridgeOtaSection" class="hidden">
+<h2>VoiceBridge — Aggiornamenti privati</h2>
+<p class="hint">Solo dispositivi approvati: nessun login GitHub. Il servizio resta chiuso finché non viene attivato dal proprietario.</p>
+<div class="row"><button id="voicebridgeInviteCreate" type="button">Crea invito VoiceBridge (7 giorni)</button><button id="voicebridgeDevicesRefresh" class="secondary" type="button">Aggiorna dispositivi</button></div>
+<label for="voicebridgeInviteCode">Codice invito da incollare in VoiceBridge Windows</label><input id="voicebridgeInviteCode" readonly>
+<button id="voicebridgeCopyInvite" class="secondary" type="button">Copia codice</button>
+<p id="voicebridgeOtaMessage" class="hint" role="status">Verifica il servizio prima di emettere inviti.</p>
+<div id="voicebridgeOtaDevices"></div>
+</section>
 <section id="phoneManagement" class="hidden"><h2>Telefoni amministratori</h2>
 <p class="hint">Quando cambi telefono, autorizza la registrazione dal dispositivo che possiedi già. Mantieni entrambi finché il nuovo non funziona.</p>
 <button id="makePairing" type="button">Genera codice per nuovo telefono</button>
@@ -498,14 +507,14 @@ $("passkeyLogin").onclick=async()=>{
   const result=await api("/api/admin/passkey/auth/verify",{method:"POST",
    body:JSON.stringify({challenge_id:start.challenge_id,credential:authJSON(credential)})});
   passkeyLoggedIn=Boolean(result.authenticated);
-  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();}
+  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();await refreshVoiceBridgeOta();}
  }catch(e){notify(e?.message||"Autenticazione non riuscita");}
 };
 async function restorePasskeySession(){
  try{
   const session=await api("/api/admin/passkey/session");
   passkeyLoggedIn=Boolean(session.authenticated);
-  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();}
+  if(passkeyLoggedIn){await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();await refreshVoiceBridgeOta();}
  }catch(_){passkeyLoggedIn=false;}
 }
 
@@ -587,11 +596,60 @@ $("disablePush").onclick=async()=>{
  }catch(e){pushMessage(e?.message||"Disattivazione non riuscita.");}
 };
 
-$("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();};
+async function refreshVoiceBridgeOta(){
+ if(!(token||passkeyLoggedIn))return;
+ $("voicebridgeOtaSection").classList.remove("hidden");
+ try{
+  const x=await api("/api/admin/voicebridge/devices");
+  $("voicebridgeOtaMessage").textContent="Dispositivi VoiceBridge: "+(x.devices||[]).length;
+  $("voicebridgeOtaDevices").replaceChildren();
+  for(const d of x.devices||[]){
+   const el=document.createElement("div");
+   const title=document.createElement("p");title.textContent=(d.label||"VoiceBridge")+" · "+d.current_version+" · "+d.state;
+   const expiry=document.createElement("small");expiry.textContent="Scadenza: "+(d.approved_until||"da approvare");
+   const approve=document.createElement("button");approve.textContent="Approva 7 giorni";
+   approve.onclick=async()=>{
+    if(!confirm("Approvi questo dispositivo VoiceBridge per 7 giorni?"))return;
+    try{
+     await api("/api/admin/voicebridge/devices/"+encodeURIComponent(d.installation_id)+"/decision",{
+      method:"POST",body:JSON.stringify({state:"approved",days:7})});
+     await refreshVoiceBridgeOta();
+    }catch(e){$("voicebridgeOtaMessage").textContent=e.message;}
+   };
+   const revoke=document.createElement("button");revoke.textContent="Revoca";revoke.className="danger";
+   revoke.onclick=async()=>{
+    if(!confirm("Revocare questo dispositivo VoiceBridge?"))return;
+    try{
+     await api("/api/admin/voicebridge/devices/"+encodeURIComponent(d.installation_id)+"/decision",{
+      method:"POST",body:JSON.stringify({state:"revoked"})});
+     await refreshVoiceBridgeOta();
+    }catch(e){$("voicebridgeOtaMessage").textContent=e.message;}
+   };
+   el.append(title,expiry,approve,revoke);$("voicebridgeOtaDevices").append(el);
+  }
+ }catch(e){$("voicebridgeOtaMessage").textContent=e.message+" · Servizio OTA VoiceBridge non ancora attivo.";}
+}
+$("voicebridgeInviteCreate").onclick=async()=>{
+ if(!(token||passkeyLoggedIn))return;
+ try{
+  const x=await api("/api/admin/voicebridge/invite",{
+   method:"POST",body:JSON.stringify({expires_days:7})});
+  $("voicebridgeInviteCode").value=x.invite_token;
+  $("voicebridgeOtaMessage").textContent="Invito creato. Copialo ora: non sarà mostrato una seconda volta.";
+ }catch(e){$("voicebridgeOtaMessage").textContent=e.message;}
+};
+$("voicebridgeCopyInvite").onclick=async()=>{
+ const code=$("voicebridgeInviteCode").value;if(!code)return;
+ try{await navigator.clipboard.writeText(code);$("voicebridgeOtaMessage").textContent="Codice copiato.";}
+ catch(_){$("voicebridgeInviteCode").select();$("voicebridgeOtaMessage").textContent="Seleziona e copia il codice.";}
+};
+$("voicebridgeDevicesRefresh").onclick=refreshVoiceBridgeOta;
+
+$("login").onclick=async()=>{token=$("token").value.trim();$("token").value="";await refresh();await refreshPushStatus();await refreshAdminPhones();await refreshInvites();await refreshVoiceBridgeOta();};
 $("refresh").onclick=refresh;
 $("logout").onclick=async()=>{
  try{await api("/api/admin/passkey/logout",{method:"POST",body:"{}"});}catch(_){}
- token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;pilotReport="";$("copyPilotReport").disabled=true;$("pilotStatus").textContent="";$("createdInviteLink").value="";$("inviteQr").classList.add("hidden");$("inviteQr").removeAttribute("src");$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
+ token="";passkeyLoggedIn=false;knownRequests=[];lastInvite=null;pilotReport="";$("copyPilotReport").disabled=true;$("pilotStatus").textContent="";$("createdInviteLink").value="";$("inviteQr").classList.add("hidden");$("inviteQr").removeAttribute("src");$("newInvite").classList.add("hidden");$("inviteSection").classList.add("hidden");$("inviteList").replaceChildren();$("voicebridgeOtaSection").classList.add("hidden");$("voicebridgeInviteCode").value="";$("voicebridgeOtaDevices").replaceChildren();$("phoneManagement").classList.add("hidden");$("pairingOutput").textContent="";$("pushSection").classList.add("hidden");$("pendingSection").classList.add("hidden");
  $("requests").replaceChildren();notify("Sessione chiusa");
 };
 setInterval(()=>{if((token||passkeyLoggedIn) && !document.hidden)refresh();},30000);
