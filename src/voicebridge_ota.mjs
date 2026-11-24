@@ -196,7 +196,10 @@ export async function handleVoiceBridgeOta(req,env,{administrator=false,fetcher=
     ).bind(id).first();
     if(!row||!constantTimeEqual(await sha256hex(secret.toLowerCase()),row.secret_sha256))
       return fail("Invalid device credentials",403);
-    return answer({state:row.state,approved_until:row.approved_until});
+    const effective = row.state==="approved" &&
+      (!row.approved_until || Date.parse(row.approved_until)<=Date.now())
+      ? "expired" : row.state;
+    return answer({state:effective,approved_until:row.approved_until});
   }
 
   if(path==="/api/voicebridge/v1/update"&&method==="GET"){
