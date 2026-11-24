@@ -1,0 +1,60 @@
+name: VoiceBridge server release-token probe (read-only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/voicebridge-token-probe.yml'
+permissions:
+  contents: read
+jobs:
+  token-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VOICEBRIDGE_RELEASES_TOKEN: ${{ secrets.VOICEBRIDGE_RELEASES_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe same private GitHub read token provisioned to Cloudflare
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.VOICEBRIDGE_RELEASES_TOKEN;
+          if(!token||token.length<25)throw Error('VOICEBRIDGE_RELEASES_TOKEN unavailable');
+          const repo='pilialvu75-hue/AIVEXUS-VoiceBridge';
+          const head={
+            Authorization:'Bearer '+token,
+            Accept:'application/vnd.github+json',
+            'X-GitHub-Api-Version':'2022-11-28',
+            'User-Agent':'AIVEXUS-Beta-Access/1.0',
+          };
+          const release=await fetch('https://api.github.com/repos/'+repo+
+            '/releases/tags/v0.5.8-beta.1',{headers:head,redirect:'manual'});
+          if(release.status!==200)
+            throw Error('Server token cannot read VoiceBridge private release: HTTP '+release.status);
+          const metadata=await release.json();
+          const filename='AIVEXUS-VoiceBridge-Setup-v0.5.8-Win11.exe';
+          const asset=metadata.assets?.find(a=>a.name===filename);
+          if(!asset||asset.size<900000000||
+             !/^sha256:[a-f0-9]{64}$/.test(asset.digest||''))
+            throw Error('VoiceBridge private release asset not valid');
+          const response=await fetch('https://api.github.com/repos/'+repo+
+            '/releases/assets/'+asset.id,{
+              headers:{...head,Accept:'application/octet-stream'},
+              redirect:'manual',
+            });
+          if(response.status!==302){
+            await response.body?.cancel();
+            throw Error('Private release asset does not return HTTP 302: '+response.status);
+          }
+          const location=response.headers.get('location')||'';
+          const target=location?new URL(location):null;
+          if(!target||target.protocol!=='https:'||
+             target.hostname!=='release-assets.githubusercontent.com')
+            throw Error('Private release redirect did not target trusted GitHub CDN');
+          console.log('PASS: dedicated server token reads real private VoiceBridge release metadata');
+          console.log('PASS: authenticated private installer API provides signed GitHub CDN redirect');
+          console.log('No token, signed CDN URL, customer data or binary logged or downloaded.');
+          NODE
