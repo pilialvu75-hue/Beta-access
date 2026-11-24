@@ -47,7 +47,13 @@ jobs:
           });
           if(admin.status!==200||!Array.isArray(admin.data.devices))
             throw Error('Owner-only device roster unavailable: '+admin.status);
-          const publicGate=await get('/download/latest');
+          // An unknown download path can legitimately return empty 404,
+          // not JSON. Inspect status only; do not assert its content type.
+          const publicGate=await fetch(base+'/download/latest',{
+            method:'GET',redirect:'manual',cache:'no-store',
+            signal:AbortSignal.timeout(12000),
+          });
+          await publicGate.body?.cancel();
           if(publicGate.status===200||publicGate.status===302)
             throw Error('Public beta download unexpectedly enabled');
           console.log('PASS: deployed AIVEXUS gate refuses anonymous clients, requires device credentials,');
