@@ -1,0 +1,56 @@
+name: VoiceBridge live OTA gate (read-only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/voicebridge-live-gate.yml'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BETA_ADMIN_TOKEN: ${{ secrets.BETA_ADMIN_TOKEN }}
+      BASE_URL: https://aivexus-beta-access.aivexus-lab.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only live security gate, no device mutations or secrets in logs
+        run: |
+          node --input-type=module <<'NODE'
+          const base=process.env.BASE_URL;
+          const token=process.env.BETA_ADMIN_TOKEN;
+          if(!token||token.length<48)throw Error('Server admin credential unavailable');
+          async function get(path,headers={}){
+            const response=await fetch(base+path,{
+              method:'GET',headers,redirect:'manual',cache:'no-store',
+              signal:AbortSignal.timeout(12000)
+            });
+            const type=response.headers.get('content-type')||'';
+            if(!type.includes('application/json'))throw Error('Expected JSON at '+path+', got '+type);
+            const raw=await response.text();
+            if(raw.length>200000)throw Error('Response unexpectedly large');
+            return {status:response.status,data:JSON.parse(raw)};
+          }
+          const unauthorized=await get('/api/voicebridge/v1/update');
+          if(unauthorized.status!==403)throw Error('Anonymous release metadata must be blocked: '+unauthorized.status);
+          const noKey=await get('/api/voicebridge/v1/status');
+          if(noKey.status!==401)throw Error('Device status must require credentials: '+noKey.status);
+          const noAdmin=await get('/api/admin/voicebridge/devices');
+          if(noAdmin.status!==401)throw Error('Admin roster should reject unauthenticated access: '+noAdmin.status);
+          const admin=await get('/api/admin/voicebridge/devices',{
+            Authorization:'Bearer '+token
+          });
+          if(admin.status!==200||!Array.isArray(admin.data.devices))
+            throw Error('Owner-only device roster unavailable: '+admin.status);
+          const publicGate=await get('/download/latest');
+          if(publicGate.status===200||publicGate.status===302)
+            throw Error('Public beta download unexpectedly enabled');
+          console.log('PASS: deployed AIVEXUS gate refuses anonymous clients, requires device credentials,');
+          console.log('PASS: authenticated admin can read D1 device registry, public downloads remain closed');
+          console.log('No device ids, tokens, invite codes, signed asset URLs or personal data logged.');
+          NODE
