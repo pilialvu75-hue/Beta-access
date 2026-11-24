@@ -103,6 +103,11 @@ export async function handleVoiceBridgeOta(req,env,{administrator=false,fetcher=
   const url=new URL(req.url);
   const path=url.pathname.replace(/\/+$/,"");
   const method=req.method;
+  // Passkey cookie routes need same-origin POST protection.
+  // Native Windows enrollment sends no browser Origin, so it remains valid.
+  const origin=req.headers.get("origin");
+  if(method==="POST" && origin && origin!==url.origin)
+    return fail("Cross-origin mutation refused",403);
 
   if(path==="/api/admin/voicebridge/invite"&&method==="POST"){
     if(!administrator)return fail("Administrator required",401);
