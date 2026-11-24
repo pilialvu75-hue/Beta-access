@@ -23,7 +23,7 @@ on:
         required: false
         default: false
       voicebridge_gate_confirmed:
-        description: 'I verified the VoiceBridge device gate'
+        description: 'I authorize an owner-only VoiceBridge OTA pilot (public downloads remain OFF)'
         type: boolean
         required: false
         default: false
