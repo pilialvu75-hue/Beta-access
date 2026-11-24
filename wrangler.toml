@@ -12,6 +12,8 @@ PUBLIC_TESTERS_ENABLED = "false"
 # Invite-only pilot, independent of public installer distribution.
 PRIVATE_PILOT_ENROLLMENT_ENABLED = "false"
 APPROVED_BETA_TAG = ""
+# VoiceBridge private OTA is independent and OFF until owner-only readiness proof.
+VOICEBRIDGE_OTA_ENABLED = "false"
 
 [assets]
 directory = "./public"
